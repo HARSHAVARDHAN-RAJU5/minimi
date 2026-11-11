@@ -1,12 +1,13 @@
 import { createApp } from "./app.js";
-import { loadConfig, loadEnvFile } from "./config.js";
+import { loadConfig, loadEnvFile, missingKeys } from "./config.js";
 
 loadEnvFile();
 const config = loadConfig();
 
 createApp().listen(config.port, () => {
   console.log(`minimi agent running at http://localhost:${config.port}`);
-  if (!config.geminiApiKey) {
-    console.warn("Warning: GEMINI_API_KEY is not set. Copy .env.example to .env and add your key to chat.");
+  const missing = missingKeys(config);
+  if (missing.length) {
+    console.warn(`Warning: ${missing.join(" and ")} not set. Copy .env.example to .env and add your keys to chat.`);
   }
 });

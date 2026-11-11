@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "test": "vitest run",
+    "test": "vitest run --project unit",
+    "test:live": "vitest run --project live",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
