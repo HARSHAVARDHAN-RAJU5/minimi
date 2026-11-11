@@ -27,7 +27,7 @@ describe("config", () => {
     });
     expect(config).toEqual({
       geminiApiKey: "g", geminiModel: "m1", geminiFastModel: "m2",
-      exaApiKey: "e", tavilyApiKey: "t", searchMode: "code-first", port: 4000,
+      exaApiKey: "e", tavilyApiKey: "t", searchMode: "code-first", port: 4000, dbPath: "data/minimi.db",
     });
   });
 

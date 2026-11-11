@@ -125,7 +125,9 @@ export function registerChatRoutes(app: Express, { db, chat }: { db: Db; chat?: 
         send(type, data);
       }
     } catch (err) {
-      if (!closed) send("error", { message: err instanceof Error ? err.message : String(err) });
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`answer failed (chat ${current.id}): ${message.slice(0, 200)}`);
+      if (!closed) send("error", { message });
     } finally {
       // 2) Save the answer (even a partial one, marked stopped) and the new note.
       if (text.trim()) {

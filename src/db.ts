@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { ChatNote } from "./context.js";
 import type { Source } from "./llm.js";
 
-export const DEFAULT_DB_PATH = "data/minimi.db";
+import { DEFAULT_DB_PATH } from "./config.js";
 const SCHEMA_VERSION = 1;
 
 export interface User { id: number; name: string; createdAt: string }
@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS messages (
   stopped    INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS app_state (
+  key   TEXT PRIMARY KEY,         -- small app settings kept across restarts,
+  value TEXT NOT NULL             -- e.g. "writer_skip_until" when a model's daily quota is used up
+);
 -- Fast lookups: a user's chats newest first; a chat's messages in order; a user's messages by date.
 CREATE INDEX IF NOT EXISTS chats_by_user_time    ON chats(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS messages_by_chat      ON messages(chat_id, id);
@@ -81,6 +85,17 @@ export class Db {
   close() { this.db.close(); }
 
   private stamp(): string { return this.now().toISOString(); }
+
+  // --- App state (not per user) ------------------------------------------------
+
+  getState(key: string): string | undefined {
+    const row = this.db.prepare("SELECT value FROM app_state WHERE key = ?").get(key) as Row | undefined;
+    return row ? String(row.value) : undefined;
+  }
+
+  setState(key: string, value: string): void {
+    this.db.prepare("INSERT INTO app_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+  }
 
   // --- Users -----------------------------------------------------------------
 

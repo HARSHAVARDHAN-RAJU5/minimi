@@ -9,11 +9,13 @@ export interface Config {
   tavilyApiKey?: string; // backup web search
   searchMode: SearchMode; // who builds the searches: code first (AI planner as backup), or always the AI planner
   port: number;
+  dbPath: string; // where chats are saved
 }
 
 export const DEFAULT_MODEL = "gemini-3.8-flash";
 export const DEFAULT_FAST_MODEL = "gemini-3.5-flash-lite";
 export const DEFAULT_PORT = 3000;
+export const DEFAULT_DB_PATH = "data/minimi.db";
 
 // Empty strings in .env count as "not set".
 function read(env: NodeJS.ProcessEnv, name: string): string | undefined {
@@ -35,6 +37,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     tavilyApiKey: read(env, "TAVILY_API_KEY"),
     searchMode: readSearchMode(read(env, "SEARCH_MODE")),
     port,
+    dbPath: read(env, "DB_PATH") ?? DEFAULT_DB_PATH,
   };
 }
 

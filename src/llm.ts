@@ -87,13 +87,15 @@ export interface FallbackInfo { from: string; to: string; reason: string; daily:
 // Uses `primary`; if it fails with quota/busy before sending anything, uses `backup`.
 // After a daily-quota error it skips `primary` until Google's reset time, so no answer
 // waits for a refusal it already knows is coming.
+// `memory` keeps "skip until" across server restarts (e.g. saved in the database).
 export function withFallback(
   primary: ChatModel,
   backup: ChatModel,
   onFallback: (info: FallbackInfo) => void = () => {},
   now: () => number = Date.now,
+  memory?: { load(): number | undefined; save(until: number): void },
 ): ChatModel {
-  let skipUntil = 0;
+  let skipUntil = memory?.load() ?? 0;
   return {
     name: primary.name,
     async *stream(input) {
@@ -112,7 +114,10 @@ export function withFallback(
       } catch (err) {
         if (sentAnything || !isQuotaOrBusy(err)) throw err;
         const daily = isDailyQuota(err);
-        if (daily) skipUntil = now() + retryAfterMs(err);
+        if (daily) {
+          skipUntil = now() + retryAfterMs(err);
+          memory?.save(skipUntil);
+        }
         onFallback({
           from: primary.name, to: backup.name, reason: errorText(err).slice(0, 200), daily, skipped: false,
           ...(daily ? { until: new Date(skipUntil) } : {}),
@@ -131,6 +136,8 @@ export interface AnswerOptions {
   maxResults?: number; // results kept per search (search returns up to 5)
   maxChars?: number; // page text kept per result (search returns up to 1,500)
   presetQueries?: string[]; // searches built by code: run these, skip the planner
+  noSearch?: boolean; // small talk ("thanks!"): no planner, no search, just write
+  plannerTimeoutMs?: number; // planner taking longer than this → give up and search the question as-is
   withNote?: boolean; // the writer adds a hidden <note>; cut it out and send it as a "note" event
 }
 
@@ -192,7 +199,9 @@ export async function* answer(input: AnswerInput): AsyncGenerator<AgentEvent> {
   }
 
   const preset = options.presetQueries?.filter((q) => q.trim());
-  if (preset?.length) {
+  if (options.noSearch) {
+    // 1) Small talk: nothing to look up.
+  } else if (preset?.length) {
     // 1a) Code already built the searches: no planner.
     yield* searchRound(preset);
   } else {
@@ -209,7 +218,8 @@ export async function* answer(input: AnswerInput): AsyncGenerator<AgentEvent> {
       const planStart = clock();
       const modelParts: Part[] = [];
       try {
-        for await (const parts of planner.stream({ system: plannerSystem, contents: planContents, tools: true })) {
+        const stream = planner.stream({ system: plannerSystem, contents: planContents, tools: true });
+        for await (const parts of withTimeout(stream, options.plannerTimeoutMs, "planner took too long")) {
           modelParts.push(...parts); // planner text is a draft, never shown
         }
       } catch (err) {
@@ -227,6 +237,9 @@ export async function* answer(input: AnswerInput): AsyncGenerator<AgentEvent> {
       if (calls.length === 0) break;
 
       const responses = yield* searchRound(calls.map((c) => String(c.args?.query ?? "").trim()));
+      // Found something? Stop planning (a second look cost seconds and rarely helped).
+      // Only ask the planner again when every search failed or came back empty.
+      if (responses.some((r) => Array.isArray(r.results) && r.results.length > 0)) break;
       planContents.push({
         role: "user",
         parts: calls.map((c, i) => ({ functionResponse: { id: c.id, name: "web_search", response: responses[i] } })),
@@ -276,6 +289,28 @@ export async function* answer(input: AnswerInput): AsyncGenerator<AgentEvent> {
   timings.totalMs = clock() - start;
   onTimings?.(timings);
   yield { type: "done" };
+}
+
+// Passes a stream through, but throws if the whole thing takes longer than `ms`
+// (and stops the underlying stream). No limit when ms is undefined.
+async function* withTimeout<T>(stream: AsyncIterable<T>, ms: number | undefined, message: string): AsyncGenerator<T> {
+  if (!ms) {
+    yield* stream;
+    return;
+  }
+  const it = stream[Symbol.asyncIterator]();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); });
+  try {
+    for (;;) {
+      const next = await Promise.race([it.next(), timeout]);
+      if (next.done) return;
+      yield next.value;
+    }
+  } finally {
+    clearTimeout(timer);
+    void it.return?.(); // stop the planner's stream
+  }
 }
 
 // Cuts a hidden <note>…</note> out of streamed text, even when it arrives split across

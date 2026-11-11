@@ -1,20 +1,45 @@
-// Chat page: sends a question to /api/chat and shows the live answer.
+// Chat page: pick a user, see your saved chats, ask questions and watch the live answer.
 /* global marked, DOMPurify */
 
-const chat = document.getElementById("chat");
-const empty = document.getElementById("empty");
-const form = document.getElementById("ask");
-const input = document.getElementById("question");
-const sendBtn = document.getElementById("send");
-const stopBtn = document.getElementById("stop");
+const $ = (id) => document.getElementById(id);
+const chat = $("chat");
+const form = $("ask");
+const input = $("question");
+const sendBtn = $("send");
+const stopBtn = $("stop");
+const chatList = $("chat-list");
+const titleEl = $("title");
 
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const USER_KEY = "minimi.user";
 
-// Kept for follow-ups. (Phase 2 moves this into the database.)
-let history = []; // [{ role: "user" | "assistant", text }]
-let note = null; // { things, topic }: what we're talking about, from the last answer
+let user = null; // { id, name }
+let currentChatId = null; // the open chat; null = a new chat
 let controller = null;
 let msgCount = 0;
+
+// --- Small helpers -------------------------------------------------------------
+
+// Browser storage can be blocked (private windows); the page still works without it.
+const store = {
+  get() { try { return JSON.parse(localStorage.getItem(USER_KEY) || "null"); } catch { return null; } },
+  set(v) { try { localStorage.setItem(USER_KEY, JSON.stringify(v)); } catch { /* ignore */ } },
+  clear() { try { localStorage.removeItem(USER_KEY); } catch { /* ignore */ } },
+};
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function api(path, options = {}) {
+  return fetch(path, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...(user ? { "X-User-Id": String(user.id) } : {}), ...(options.headers || {}) },
+  });
+}
 
 // Links in answers open in a new tab, safely.
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
@@ -40,16 +65,25 @@ function renderMarkdown(text, id) {
   return DOMPurify.sanitize(marked.parse(linkCitations(text, id), { gfm: true, breaks: false }));
 }
 
-function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
+// "Today", "Yesterday", "Mon 9 Nov", "Tue 3 Nov 2025"
+function dayLabel(iso) {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return "Today";
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  const opts = { weekday: "short", day: "numeric", month: "short", ...(d.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}) };
+  return d.toLocaleDateString(undefined, opts);
 }
 
-function scrollDown() {
+function timeLabel(iso) {
+  const d = new Date(iso);
+  return `${dayLabel(iso)}, ${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function scrollDown(force = false) {
   const nearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 160;
-  if (nearBottom) chat.scrollTop = chat.scrollHeight;
+  if (force || nearBottom) chat.scrollTop = chat.scrollHeight;
 }
 
 function setBusy(busy) {
@@ -59,10 +93,85 @@ function setBusy(busy) {
   if (!busy) input.focus();
 }
 
-function addUserMessage(text) {
+// --- Who are you? --------------------------------------------------------------
+
+// keepName: after a bad name, keep what was typed so it can be fixed instead of retyped.
+function showPicker(message, keepName = false) {
+  $("picker").hidden = false;
+  $("picker-error").hidden = !message;
+  $("picker-error").textContent = message || "";
+  if (!keepName) $("picker-name").value = "";
+  $("picker-name").focus();
+}
+
+async function pickUser(name) {
+  const res = await api("/api/users", { method: "POST", body: JSON.stringify({ name }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return showPicker(body.error || "Something went wrong. Try again.", true);
+  user = body.user;
+  store.set(user);
+  $("picker").hidden = true;
+  await start();
+}
+
+// Called when the server says the remembered user is gone.
+function forgetUser(message) {
+  user = null;
+  currentChatId = null;
+  store.clear();
+  if (location.hash) history.replaceState(null, "", location.pathname); // the old chat link belongs to the old user
+  showPicker(message);
+}
+
+// --- Sidebar: your chats ------------------------------------------------------
+
+async function loadChatList() {
+  const res = await api("/api/chats");
+  if (res.status === 401) return forgetUser("Please pick your name again.");
+  const { chats = [] } = await res.json().catch(() => ({}));
+  chatList.replaceChildren();
+  if (!chats.length) {
+    chatList.append(el("div", "none", "No chats yet."));
+    return;
+  }
+  let lastDay = "";
+  for (const c of chats) {
+    const day = dayLabel(c.updatedAt);
+    if (day !== lastDay) {
+      chatList.append(el("h3", null, day));
+      lastDay = day;
+    }
+    const a = el("a", c.id === currentChatId ? "active" : "", c.title);
+    a.href = `#chat-${c.id}`;
+    a.title = c.title;
+    chatList.append(a);
+  }
+}
+
+function markActive() {
+  for (const a of chatList.querySelectorAll("a")) a.classList.toggle("active", a.getAttribute("href") === `#chat-${currentChatId}`);
+}
+
+function closeSidebar() {
+  document.body.classList.remove("sidebar-open");
+  $("backdrop").hidden = true;
+}
+
+// --- Showing messages ------------------------------------------------------------
+
+function showEmpty() {
+  chat.replaceChildren($("empty-template").content.cloneNode(true));
+  for (const button of chat.querySelectorAll(".example")) {
+    button.addEventListener("click", () => { if (!controller) ask(button.textContent); });
+  }
+}
+
+function addUserMessage(text, createdAt) {
+  chat.querySelector(".empty")?.remove();
   const msg = el("div", "msg user");
   msg.append(el("div", "bubble", text));
   chat.append(msg);
+  if (createdAt) chat.append(el("div", "when", timeLabel(createdAt)));
 }
 
 function addAssistantMessage() {
@@ -70,14 +179,13 @@ function addAssistantMessage() {
   const msg = el("div", "msg assistant");
   const progress = el("ul", "progress");
   const answer = el("div", "answer");
-  answer.append(el("span", "thinking", "Thinking"));
   msg.append(progress, answer);
   chat.append(msg);
   return { id, msg, progress, answer };
 }
 
 function showSources(view, sources) {
-  if (!sources.length) return;
+  if (!sources || !sources.length) return;
   const box = el("div", "sources");
   box.append(el("h4", null, "Sources"));
   const list = el("ol");
@@ -103,6 +211,52 @@ function showError(view, message) {
   view.msg.append(el("div", "error", message));
 }
 
+// A saved chat: draw all its messages.
+function drawSavedMessages(messages) {
+  chat.replaceChildren();
+  if (!messages.length) return showEmpty();
+  for (const m of messages) {
+    if (m.role === "user") {
+      addUserMessage(m.text, m.createdAt);
+    } else {
+      const view = addAssistantMessage();
+      if (m.searches?.length) view.progress.append(el("li", null, `Searched: ${m.searches.join(" · ")}`));
+      view.answer.innerHTML = renderMarkdown(m.text, view.id);
+      showSources(view, m.sources);
+      if (m.stopped) view.msg.append(el("div", "stopped", "Stopped early."));
+    }
+  }
+  scrollDown(true);
+}
+
+// --- Opening chats ----------------------------------------------------------------
+
+async function openChat(id) {
+  if (controller) return;
+  const res = await api(`/api/chats/${id}`);
+  if (res.status === 401) return forgetUser("Please pick your name again.");
+  if (!res.ok) return newChat(); // not yours or gone: start fresh
+  const { chat: info, messages } = await res.json();
+  currentChatId = info.id;
+  titleEl.textContent = info.title;
+  drawSavedMessages(messages);
+  markActive();
+  closeSidebar();
+}
+
+function newChat() {
+  controller?.abort();
+  currentChatId = null;
+  titleEl.innerHTML = "minimi <span>agent</span>";
+  if (location.hash) history.replaceState(null, "", location.pathname);
+  showEmpty();
+  markActive();
+  closeSidebar();
+  input.focus();
+}
+
+// --- Asking -------------------------------------------------------------------
+
 // Reads the server's live updates (SSE): blocks of "event: x\ndata: {...}" separated by a blank line.
 async function* readEvents(response) {
   const reader = response.body.getReader();
@@ -124,23 +278,21 @@ async function* readEvents(response) {
 }
 
 async function ask(question) {
-  empty?.remove();
   addUserMessage(question);
   const view = addAssistantMessage();
-  scrollDown();
+  view.answer.append(el("span", "thinking", "Thinking"));
+  scrollDown(true);
   setBusy(true);
-
   controller = new AbortController();
   let text = "";
-  let finished = false;
 
   try {
-    const res = await fetch("/api/chat", {
+    const res = await api("/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, history, timezone, ...(note ? { note } : {}) }),
+      body: JSON.stringify({ question, timezone, ...(currentChatId ? { chatId: currentChatId } : {}) }),
       signal: controller.signal,
     });
+    if (res.status === 401) return forgetUser("Please pick your name again.");
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       showError(view, body.error || `Something went wrong (HTTP ${res.status}).`);
@@ -148,21 +300,24 @@ async function ask(question) {
     }
 
     for await (const { event, data } of readEvents(res)) {
-      if (event === "search") {
+      if (event === "chat") {
+        // The server saved the question in this chat (new or continued).
+        const isNew = currentChatId !== data.id;
+        currentChatId = data.id;
+        titleEl.textContent = data.title;
+        history.replaceState(null, "", `#chat-${data.id}`);
+        if (isNew) loadChatList();
+      } else if (event === "search") {
         view.progress.append(el("li", null, `Searching: ${data.query}`));
       } else if (event === "search_failed") {
         view.progress.append(el("li", "warn", `Search failed: ${data.query}`));
       } else if (event === "text") {
         text += data.text;
         view.answer.innerHTML = renderMarkdown(text, view.id);
-      } else if (event === "note") {
-        note = data.note;
       } else if (event === "sources") {
         showSources(view, data.sources);
       } else if (event === "error") {
         showError(view, data.message);
-      } else if (event === "done") {
-        finished = true;
       }
       scrollDown();
     }
@@ -171,20 +326,19 @@ async function ask(question) {
     else showError(view, "Lost connection to the server. Is it still running?");
   } finally {
     view.answer.querySelector(".thinking")?.remove();
-    if (text) {
-      history.push({ role: "user", text: question }, { role: "assistant", text: finished ? text : `${text}\n\n(stopped early)` });
-      history = history.slice(-20);
-    }
     controller = null;
     setBusy(false);
     scrollDown();
+    loadChatList(); // this chat moves to the top
   }
 }
+
+// --- Events ---------------------------------------------------------------------
 
 form.addEventListener("submit", (e) => {
   e.preventDefault();
   const question = input.value.trim();
-  if (!question || controller) return;
+  if (!question || controller || !user) return;
   input.value = "";
   input.style.height = "";
   ask(question);
@@ -205,16 +359,43 @@ input.addEventListener("input", () => {
 });
 
 stopBtn.addEventListener("click", () => controller?.abort());
-
-document.getElementById("new-chat").addEventListener("click", () => {
-  controller?.abort();
-  history = [];
-  note = null;
-  location.reload();
+$("new-chat").addEventListener("click", newChat);
+$("switch-user").addEventListener("click", () => {
+  if (controller) return;
+  forgetUser();
+});
+$("toggle-sidebar").addEventListener("click", () => {
+  document.body.classList.add("sidebar-open");
+  $("backdrop").hidden = false;
+});
+$("backdrop").addEventListener("click", closeSidebar);
+$("picker-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  pickUser($("picker-name").value);
 });
 
-for (const button of document.querySelectorAll(".example")) {
-  button.addEventListener("click", () => {
-    if (!controller) ask(button.textContent);
-  });
+// Clicking a chat in the sidebar (or the back button) changes #chat-N.
+window.addEventListener("hashchange", () => {
+  const m = /^#chat-(\d+)$/.exec(location.hash);
+  if (m && Number(m[1]) !== currentChatId) openChat(Number(m[1]));
+});
+
+// --- Start ----------------------------------------------------------------------
+
+async function start() {
+  $("user-name").textContent = user.name;
+  await loadChatList();
+  const m = /^#chat-(\d+)$/.exec(location.hash);
+  if (m) await openChat(Number(m[1]));
+  else newChat();
 }
+
+(async function boot() {
+  user = store.get();
+  if (!user) return showPicker();
+  // Check the remembered user still exists (e.g. the database was reset).
+  const res = await api("/api/me").catch(() => null);
+  if (!res || !res.ok) return forgetUser(res ? "Please pick your name again." : undefined);
+  user = (await res.json()).user;
+  await start();
+})();

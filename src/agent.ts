@@ -22,7 +22,12 @@ export function fallbackLine({ from, to, daily, skipped, until }: FallbackInfo):
   return `writer fallback ${from} → ${to} (${daily ? `daily quota used up; skipping it until ${time}` : "quota or busy"})`;
 }
 
-export function createAgent(config: Config, log: (line: string) => void = console.log): ChatFn {
+// Small key/value memory kept across restarts (the database's app_state table).
+export interface AppState { getState(key: string): string | undefined; setState(key: string, value: string): void }
+
+export const PLANNER_TIMEOUT_MS = 5000;
+
+export function createAgent(config: Config, log: (line: string) => void = console.log, state?: AppState): ChatFn {
   // Built once on first use and kept, so the writer remembers a used-up daily quota between chats.
   let parts: { planner: ChatModel; writer: ChatModel; search: WebSearch } | undefined;
 
@@ -36,7 +41,11 @@ export function createAgent(config: Config, log: (line: string) => void = consol
       const smart = createGeminiModel(config.geminiApiKey!, config.geminiModel);
       parts = {
         planner: fast,
-        writer: withFallback(smart, fast, (info) => log(fallbackLine(info))),
+        writer: withFallback(smart, fast, (info) => log(fallbackLine(info)), Date.now, state && {
+          // Remember "smart model's daily quota is used up until …" across restarts.
+          load: () => Number(state.getState(`skip_until:${config.geminiModel}`)) || undefined,
+          save: (until) => state.setState(`skip_until:${config.geminiModel}`, String(until)),
+        }),
         search: webSearchFromConfig(config),
       };
     }
@@ -51,7 +60,7 @@ export function createAgent(config: Config, log: (line: string) => void = consol
       writerSystem: writerPrompt(timezone),
       question,
       history: toContents(history),
-      options: { presetQueries: route.queries, withNote: true },
+      options: { presetQueries: route.queries, noSearch: route.path === "none", plannerTimeoutMs: PLANNER_TIMEOUT_MS, withNote: true },
       onPlannerError: (err) => log(`planner failed (${err instanceof Error ? err.message.slice(0, 80) : err}) → searching the question as-is`),
       onTimings: (t) => log(
         `timing: plan ${t.planMs.map(ms).join("+") || "-"}, search ${t.searchMs.map(ms).join("+") || "-"}, first word ${t.firstTextMs === undefined ? "-" : ms(t.firstTextMs)}, total ${ms(t.totalMs)}`,

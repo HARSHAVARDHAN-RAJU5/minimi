@@ -118,3 +118,12 @@ describe("database file", () => {
     }
   });
 });
+
+describe("app state", () => {
+  it("keeps small settings, and overwrites them", () => {
+    expect(db.getState("skip_until:x")).toBeUndefined();
+    db.setState("skip_until:x", "123");
+    db.setState("skip_until:x", "456");
+    expect(db.getState("skip_until:x")).toBe("456");
+  });
+});

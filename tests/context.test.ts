@@ -86,7 +86,7 @@ describe("chooseSearchPath", () => {
 
   it("the AI planner is the backup when code finds nothing", () => {
     expect(chooseSearchPath("what does supabase cost", undefined, "code-first")).toEqual({ path: "planner", reason: "code found no product name" });
-    expect(chooseSearchPath("thanks!", note, "code-first")).toEqual({ path: "planner", reason: "code found no product name" });
+    expect(chooseSearchPath("tell me a joke", note, "code-first")).toEqual({ path: "planner", reason: "code found no product name" });
   });
 
   it("SEARCH_MODE=planner always uses the AI planner", () => {
@@ -100,5 +100,21 @@ describe("parseNote (from the page)", () => {
     expect(parseNote({ things: [], topic: "x" })).toBeUndefined();
     expect(parseNote("nope")).toBeUndefined();
     expect(parseNote({ things: Array.from({ length: 30 }, (_, i) => `T${i}`), topic: "t" })?.things).toHaveLength(10);
+  });
+});
+
+describe("small talk and filler words", () => {
+  it("small talk skips searching", () => {
+    for (const q of ["thanks!", "Thank you so much", "ok", "hi 👋", "Got it.", "good morning"]) {
+      expect(chooseSearchPath(q, undefined, "code-first")).toEqual({ path: "none", reason: "small talk" });
+    }
+    expect(chooseSearchPath("thanks! what does Neon cost?", undefined, "code-first", 2026).path).toBe("code");
+    expect(chooseSearchPath("ok", undefined, "planner").path).toBe("none");
+  });
+
+  it("drops filler words from code-built searches", () => {
+    expect(q("Compare Notion, Coda and Confluence for a 10 person team in detail")).toEqual([
+      "Notion compare 10 person team", "Coda compare 10 person team", "Confluence compare 10 person team",
+    ]);
   });
 });

@@ -54,6 +54,9 @@ const STOP = new Set([
   "it", "its", "it's", "that", "this", "they", "them", "their", "these", "those", "one", "any", "all", "each", "both",
   "i", "we", "you", "me", "us", "my", "our", "your", "can", "could", "should", "would", "will", "tell", "please", "there",
   "have", "has", "had", "get", "give", "now", "today", "right", "still", "currently", "current", "just", "also", "so", "if",
+  // Filler that makes searches worse ("…team in detail" → "…team").
+  "detail", "details", "detailed", "explain", "explained", "info", "information", "overview", "summary", "quick", "quickly",
+  "briefly", "exactly", "really", "actually", "some", "anything", "everything", "something", "know", "want", "need", "like",
 ]);
 
 const hasAny = (text: string, words: string[]) => words.some((w) => (w === "$" ? text.includes("$") : new RegExp(`\\b${escape(w)}\\b`, "i").test(text)));
@@ -163,11 +166,17 @@ export function noteFromSearches(question: string, queries: string[]): ChatNote 
 // --- Choosing the path --------------------------------------------------------
 
 export type SearchMode = "code-first" | "planner";
-export interface SearchPath { path: "code" | "planner"; queries?: string[]; reason: string }
+export interface SearchPath { path: "code" | "planner" | "none"; queries?: string[]; reason: string }
+
+// "thanks!", "ok", "hi 👋": no search and no planner needed.
+const SMALL_TALK = /^(?:thanks?(?: you| a lot| so much)?|thank you(?: so much)?|thx|ty|ok(?:ay)?|k|cool|great|nice|awesome|perfect|got it|sounds good|hi|hello|hey|bye|good (?:morning|afternoon|evening|night))(?:[\s!.,]*(?:\p{Extended_Pictographic}|\p{Emoji_Presentation})*)*[\s!.,]*$/iu;
+export const isSmallTalk = (question: string) => SMALL_TALK.test(question.trim());
 
 // code-first: code builds the searches when it finds a product name (in the question or the note);
 // the AI planner is the backup when code finds nothing. planner: always the AI planner.
+// Small talk skips searching in both modes.
 export function chooseSearchPath(question: string, note: ChatNote | undefined, mode: SearchMode, year?: number): SearchPath {
+  if (isSmallTalk(question)) return { path: "none", reason: "small talk" };
   if (mode === "planner") return { path: "planner", reason: "SEARCH_MODE=planner" };
   const built = buildSearches(question, note, year);
   if (built.reason === "question as-is") return { path: "planner", reason: "code found no product name" };

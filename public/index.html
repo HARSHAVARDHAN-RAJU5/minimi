@@ -8,28 +8,53 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header class="top">
-    <div class="brand">minimi <span>agent</span></div>
-    <button id="new-chat" class="ghost" type="button" title="Start a new chat">New chat</button>
-  </header>
+  <aside id="sidebar" class="sidebar" aria-label="Your chats">
+    <button id="new-chat" class="new-chat" type="button">+ New chat</button>
+    <nav id="chat-list" class="chat-list"></nav>
+    <div class="who">
+      <span id="user-name" class="user-name"></span>
+      <button id="switch-user" class="link" type="button">Switch user</button>
+    </div>
+  </aside>
+  <div id="backdrop" class="backdrop" hidden></div>
 
-  <main id="chat" class="chat" aria-live="polite">
-    <section id="empty" class="empty">
+  <div class="main">
+    <header class="top">
+      <button id="toggle-sidebar" class="ghost menu" type="button" aria-label="Show chats">☰</button>
+      <div id="title" class="title">minimi <span>agent</span></div>
+    </header>
+
+    <main id="chat" class="chat" aria-live="polite"></main>
+
+    <form id="ask" class="ask">
+      <textarea id="question" rows="1" placeholder="Ask a question…" aria-label="Your question"></textarea>
+      <button id="send" type="submit">Send</button>
+      <button id="stop" type="button" class="stop" hidden>Stop</button>
+    </form>
+  </div>
+
+  <div id="picker" class="picker" hidden>
+    <form id="picker-form" class="picker-box">
+      <h2>Who are you?</h2>
+      <p>Type your name. Your chats are kept separate from other people's.</p>
+      <input id="picker-name" type="text" maxlength="40" autocomplete="username" placeholder="Your name" aria-label="Your name">
+      <div id="picker-error" class="picker-error" hidden></div>
+      <button type="submit">Continue</button>
+      <small>No password: this is a local app. Anyone using this computer can pick any name.</small>
+    </form>
+  </div>
+
+  <template id="empty-template">
+    <section class="empty">
       <h1>Ask anything that needs the web.</h1>
-      <p>Answers come with sources and the date they were checked.</p>
+      <p>Answers come with sources and the date they were checked. Your chats are saved.</p>
       <div class="examples">
         <button type="button" class="example">What does Supabase Pro cost per month right now?</button>
         <button type="button" class="example">Compare HubSpot, Pipedrive and Salesforce pricing for 20 users.</button>
         <button type="button" class="example">Did Vercel ship anything big this week?</button>
       </div>
     </section>
-  </main>
-
-  <form id="ask" class="ask">
-    <textarea id="question" rows="1" placeholder="Ask a question…" aria-label="Your question" autofocus></textarea>
-    <button id="send" type="submit">Send</button>
-    <button id="stop" type="button" class="stop" hidden>Stop</button>
-  </form>
+  </template>
 
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
