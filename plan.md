@@ -1,9 +1,9 @@
 # Plan: "minimi" — chat agent with web search + long-term memory
 
-> **Draft proposal.** Nothing gets built yet. Add, cut or change anything, and more rules can come later.
+> **Status:** planning done, Phase 0 done. Add, cut or change anything as we go.
 
 ## Context
-Empty repo (`E:\Project\minimi`, no commits). Goal: a chat agent that feels as good as online chat apps, with **web search as its only tool**, and that **remembers past conversations by date and topic**, so it can answer:
+Goal: a chat agent that feels as good as online chat apps, with **web search as its only tool**, and that **remembers past conversations by date and topic**, so it can answer:
 - "On Monday we shortlisted 5 CRM tools… has any changed pricing since?"
 - "What did I ask you on 3 November? Is your answer still correct today?"
 - "Last Tuesday I asked about Postgres hosting. Has pricing changed?"
@@ -71,7 +71,9 @@ Embeddings (number-vectors for meaning search) are on the "next week" list, not 
 ## Files to create
 ```
 package.json, tsconfig.json, .env.example (GEMINI_API_KEY, GEMINI_MODEL, TAVILY_API_KEY optional, PORT)
-src/server.ts          Express routes: /api/users, /api/conversations, /api/chat (SSE)
+src/config.ts          settings from .env (done)
+src/app.ts             Express app + routes: /api/health (done), /api/users, /api/conversations, /api/chat (SSE)
+src/server.ts          starts the app (done)
 src/agent.ts           per-turn flow: route → retrieve → answer → background memory update
 src/llm.ts             Gemini wrapper (stream + grounding, JSON-mode calls)
 src/dates.ts           chrono-node resolution with timezone + "today" injection
@@ -98,7 +100,7 @@ CLAUDE.md              short: commands + architecture (after code exists)
 How we work: each phase = what + why + small steps. After every step: test, then commit. After every phase: `/notes`.
 Tests: Vitest. Quick tests (`npm test`, fake Gemini) in every phase; live tests (`npm run test:live`, real Gemini) now and then.
 
-- **Phase 0 – Setup:** empty project, Vitest, `npm run dev` shows a blank page.
+- **Phase 0 – Setup:** ✔ done. Empty project, Vitest, `npm run dev` shows a blank page.
   1. `package.json`, `tsconfig.json`, TypeScript + tsx + Vitest, one example test.
   2. `.env.example` + `src/config.ts` (clear message if the Gemini key is missing).
   3. Express server + blank page + `/api/health`.
@@ -121,5 +123,5 @@ Per your instructions, I'll show you the exact text of the prompts, the `/notes`
 - Run `/notes` twice. `notes.md` should stay one page, with no duplicate points.
 
 ## Open points to confirm
-- Free-tier grounding limits for Gemini (checked at build time; Tavily fallback ready).
+- Gemini: current free model and search limits. Check in Phase 1 (default now gemini-2.5-flash); Tavily fallback ready.
 - Node ≥22.13 is required for `node:sqlite` (you have 24.22 ✔). If the grader might use older Node, switch to `sql.js`.

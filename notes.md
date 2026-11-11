@@ -5,11 +5,14 @@ Source for DESIGN.md. Rewrite points in place; don't append logs. Keep it to abo
 A chat agent as good as online chat apps. Web search is its only tool. It remembers past
 conversations by date and topic, so it can answer "Last Tuesday I asked about X. Has it changed?"
 Users: busy founders and team leads who juggle many jobs (the same people minimi serves).
+Status: Phase 0 (setup) done.
 
 ## Rules
 - JS/TS on Node. Runs with `npm install` then `npm run dev`.
 - Every API key listed in `.env.example`.
-- Any model/framework. More rules to come.
+- Any model/framework.
+- Must be fast, correct, and remember what the user asked and when. "Best architecture wins."
+- Submit: GitHub repo with a design .md, a 60-second video, top 3 projects.
 
 ## How it works (planned)
 1. Code turns dates like "last Tuesday" into real dates; a quick model call decides if old conversations are needed.
@@ -28,6 +31,9 @@ Users: busy founders and team leads who juggle many jobs (the same people minimi
 - Memory map: things (Neon, HubSpot) + links (chat → mentions → Neon) + facts with date and source. Stored as tables in the same SQLite file.
 - Speed: ask the AI less (code reads dates and names first) and search the web less (reuse facts checked in the last day, except "has it changed?" questions).
 - Seeding: pretend past chats with a "seed" label, for testing only. Same saving steps as real chats, deletable in one go. Real use starts empty.
+- Way of working: small steps; test, then commit after each one; /notes after each phase.
+- Tests: Vitest. Quick tests use a fake Gemini (fast, free, same result every time); live tests use the real one, run now and then.
+- Server: Express + TypeScript run by tsx. Settings via Node's built-in .env loader (no extra library). The page opens even without a key; chatting shows a clear "add your key" message.
 
 ## Accuracy rules (right answer first, speed second)
 - The map only points to chats; the answer always comes from the real saved messages.
@@ -57,11 +63,11 @@ Their users are busy founders and team leads. These features show the agent fits
 - Fake memory in real use: the agent would believe things the user never said.
 
 ## Open questions
-- Gemini free-tier search limits: check when building.
+- Gemini: current free model and search limits. Check in Phase 1 (default now gemini-2.5-flash).
 - Final rule list: pending.
 
 ## Next week ideas
 - Embeddings (meaning-based search) for finding past conversations.
 
 ## Learnings
-- (none yet)
+- npm 11 skips esbuild's setup script and warns about it. Harmless: tests and dev server still work.
