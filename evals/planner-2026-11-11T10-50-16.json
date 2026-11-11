@@ -1,0 +1,317 @@
+{
+  "date": "2026-11-11T10:51:35.784Z",
+  "today": "Wednesday, 11 November 2026",
+  "models": [
+    "gemini-3.5-flash-lite"
+  ],
+  "runsPerCase": 3,
+  "stopped": [],
+  "summary": [
+    {
+      "model": "gemini-3.5-flash-lite",
+      "avgMs": 1395,
+      "medianMs": 1297,
+      "coverage": 0.9880952380952381,
+      "fullCoverageRuns": "23/24",
+      "avgSearches": 2.2916666666666665,
+      "noSearchRuns": 0
+    }
+  ],
+  "runs": [
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "crm-monday",
+      "run": 1,
+      "ms": 1837,
+      "queries": [
+        "HubSpot CRM pricing changes 2026 news",
+        "Pipedrive pricing changes 2026 news",
+        "Salesforce CRM pricing changes 2026 news",
+        "Zoho CRM pricing changes 2026 news",
+        "Close CRM pricing changes 2026 news"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "crm-monday",
+      "run": 2,
+      "ms": 1199,
+      "queries": [
+        "HubSpot CRM pricing updates 2026 news",
+        "Pipedrive CRM pricing updates 2026 news",
+        "Salesforce CRM pricing updates 2026 news"
+      ],
+      "coverage": 0.7142857142857143,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "crm-monday",
+      "run": 3,
+      "ms": 1300,
+      "queries": [
+        "HubSpot CRM pricing changes 2026 news",
+        "Pipedrive CRM pricing changes 2026 news",
+        "Salesforce CRM updates pricing 2026 news",
+        "Zoho CRM pricing changes 2026 news",
+        "Close CRM pricing changes 2026 news"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "3-november",
+      "run": 1,
+      "ms": 1356,
+      "queries": [
+        "Neon Postgres pricing 2026",
+        "Supabase pricing 2026",
+        "Render Postgres pricing 2026"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "3-november",
+      "run": 2,
+      "ms": 1466,
+      "queries": [
+        "Neon Postgres pricing",
+        "Supabase Pro pricing",
+        "Render Postgres pricing"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "3-november",
+      "run": 3,
+      "ms": 1392,
+      "queries": [
+        "Neon Postgres pricing 2026",
+        "Supabase pricing 2026",
+        "Render Postgres pricing 2026"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "postgres-tuesday",
+      "run": 1,
+      "ms": 1346,
+      "queries": [
+        "Neon Postgres pricing 2026",
+        "Supabase pricing 2026",
+        "AWS RDS PostgreSQL pricing 2026",
+        "Railway pricing 2026"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "postgres-tuesday",
+      "run": 2,
+      "ms": 1291,
+      "queries": [
+        "Neon Postgres pricing 2026",
+        "Supabase pricing 2026",
+        "AWS RDS PostgreSQL pricing 2026",
+        "Railway pricing Postgres 2026"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "postgres-tuesday",
+      "run": 3,
+      "ms": 1220,
+      "queries": [
+        "Neon Postgres pricing 2026",
+        "Supabase pricing 2026",
+        "Railway pricing 2026",
+        "AWS RDS Postgres pricing 2026"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "crm-compare",
+      "run": 1,
+      "ms": 1020,
+      "queries": [
+        "HubSpot pricing 2026",
+        "Pipedrive pricing 2026",
+        "Salesforce Sales Cloud pricing 2026"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "crm-compare",
+      "run": 2,
+      "ms": 1290,
+      "queries": [
+        "HubSpot pricing tiers 2026",
+        "Pipedrive pricing plans 2026",
+        "Salesforce Sales Cloud pricing editions 2026"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "crm-compare",
+      "run": 3,
+      "ms": 1175,
+      "queries": [
+        "HubSpot pricing 2026",
+        "Pipedrive pricing 2026",
+        "Salesforce pricing 2026 sales cloud"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "vercel-news",
+      "run": 1,
+      "ms": 2108,
+      "queries": [
+        "Vercel shipping big updates news November 2026"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "vercel-news",
+      "run": 2,
+      "ms": 1043,
+      "queries": [
+        "Vercel shipping news November 2026"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "vercel-news",
+      "run": 3,
+      "ms": 1145,
+      "queries": [
+        "Vercel shipped announcements November 2026"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "linear-price",
+      "run": 1,
+      "ms": 1944,
+      "queries": [
+        "Linear pricing Business plan cost"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "linear-price",
+      "run": 2,
+      "ms": 1293,
+      "queries": [
+        "Linear pricing business plan price"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "linear-price",
+      "run": 3,
+      "ms": 2120,
+      "queries": [
+        "Linear pricing Business plan"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "stripe-india",
+      "run": 1,
+      "ms": 962,
+      "queries": [
+        "Stripe standard card fee India pricing"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "stripe-india",
+      "run": 2,
+      "ms": 1947,
+      "queries": [
+        "Stripe India pricing standard card fee"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "stripe-india",
+      "run": 3,
+      "ms": 1312,
+      "queries": [
+        "Stripe India standard card fee pricing"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "node-version",
+      "run": 1,
+      "ms": 1144,
+      "queries": [
+        "latest stable version of Node.js 2026"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "node-version",
+      "run": 2,
+      "ms": 1681,
+      "queries": [
+        "latest stable version of Node.js 2026"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "case": "node-version",
+      "run": 3,
+      "ms": 888,
+      "queries": [
+        "latest stable version of Node.js 2026"
+      ],
+      "coverage": 1,
+      "answeredWithoutSearch": false
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 // Eval: which model should plan the web searches (round 1)?
 // Compares models on speed and on whether their searches cover what the question needs.
 // Only plans searches, never runs them, so it uses no search credits.
-// Run: npm run eval:planner
+// Run: npm run eval:planner                     (both models)
+//      npm run eval:planner -- gemini-x-model   (only the models named)
 import { GoogleGenAI, type FunctionCall } from "@google/genai";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { loadConfig, loadEnvFile, requireGeminiKey } from "../src/config.js";
@@ -11,7 +12,8 @@ loadEnvFile();
 const config = loadConfig();
 const ai = new GoogleGenAI({ apiKey: requireGeminiKey(config) });
 
-const MODELS = [config.geminiModel, config.geminiFastModel];
+const cliModels = process.argv.slice(2).filter((a) => !a.startsWith("-"));
+const MODELS = cliModels.length ? cliModels : [config.geminiModel, config.geminiFastModel];
 const RUNS = 3;
 const TODAY = "Wednesday, 11 November 2026";
 
