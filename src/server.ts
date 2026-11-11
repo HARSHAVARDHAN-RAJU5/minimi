@@ -1,10 +1,11 @@
+import { createAgent } from "./agent.js";
 import { createApp } from "./app.js";
 import { loadConfig, loadEnvFile, missingKeys } from "./config.js";
 
 loadEnvFile();
 const config = loadConfig();
 
-createApp().listen(config.port, () => {
+createApp({ chat: createAgent(config) }).listen(config.port, () => {
   console.log(`minimi agent running at http://localhost:${config.port}`);
   const missing = missingKeys(config);
   if (missing.length) {
