@@ -3,3 +3,4 @@ node_modules/
 *.db
 *.db-journal
 .playwright-mcp/
+data/
