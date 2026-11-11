@@ -7,7 +7,7 @@ import type { ChatNote } from "./context.js";
 import type { Source } from "./llm.js";
 
 import { DEFAULT_DB_PATH } from "./config.js";
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 export interface User { id: number; name: string; createdAt: string }
 export interface Chat { id: number; userId: number; title: string; note?: ChatNote; createdAt: string; updatedAt: string }
@@ -22,6 +22,19 @@ export interface Message {
   stopped: boolean; // answer was cut short (Stop button / closed page)
   createdAt: string; // ISO time in UTC, e.g. 2026-11-03T09:15:00.000Z
 }
+// --- Memory map ---------------------------------------------------------------
+// A thing the user talks about (a product or company).
+export interface Thing { id: number; userId: number; name: string; type?: string; website?: string; aliases: string[]; createdAt: string }
+export interface NewThing { name: string; type?: string; website?: string; aliases?: string[] }
+// A link: this chat (and message) talked about this thing, at this time.
+export interface Mention { id: number; thingId: number; chatId: number; messageId?: number; createdAt: string }
+// A fact about a thing, with where and when it was checked. Old facts are kept, never overwritten.
+export interface Fact {
+  id: number; thingId: number; field: string; value: string;
+  sourceUrl?: string; chatId?: number; messageId?: number; checkedAt: string;
+}
+export interface NewFact { thingId: number; field: string; value: string; sourceUrl?: string; chatId?: number; messageId?: number; checkedAt?: string }
+
 export interface NewMessage {
   role: "user" | "assistant";
   text: string;
@@ -66,6 +79,40 @@ CREATE TABLE IF NOT EXISTS app_state (
 CREATE INDEX IF NOT EXISTS chats_by_user_time    ON chats(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS messages_by_chat      ON messages(chat_id, id);
 CREATE INDEX IF NOT EXISTS messages_by_user_time ON messages(user_id, created_at);
+
+-- Memory map: things the user talks about, which chats mention them, and dated facts.
+CREATE TABLE IF NOT EXISTS things (
+  id         INTEGER PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  type       TEXT,                         -- e.g. "CRM", "Postgres hosting"
+  website    TEXT,                         -- e.g. "neon.tech"
+  aliases    TEXT NOT NULL DEFAULT '[]',   -- JSON list of other names, e.g. ["PostgreSQL"]
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mentions (
+  id         INTEGER PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  thing_id   INTEGER NOT NULL REFERENCES things(id) ON DELETE CASCADE,
+  chat_id    INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+  message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS facts (
+  id         INTEGER PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  thing_id   INTEGER NOT NULL REFERENCES things(id) ON DELETE CASCADE,
+  field      TEXT NOT NULL,                -- e.g. "Launch plan price"
+  value      TEXT NOT NULL,                -- e.g. "$19/month"
+  source_url TEXT,
+  chat_id    INTEGER REFERENCES chats(id) ON DELETE SET NULL,
+  message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+  checked_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS things_by_user_name   ON things(user_id, name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS mentions_by_thing     ON mentions(user_id, thing_id, created_at);
+CREATE INDEX IF NOT EXISTS mentions_by_chat      ON mentions(chat_id);
+CREATE INDEX IF NOT EXISTS facts_by_thing_time   ON facts(user_id, thing_id, checked_at);
 `;
 
 type Row = Record<string, unknown>;
@@ -160,6 +207,130 @@ export class Db {
   listMessages(userId: number, chatId: number): Message[] {
     return (this.db.prepare("SELECT * FROM messages WHERE chat_id = ? AND user_id = ? ORDER BY id").all(chatId, userId) as Row[]).map(toMessage);
   }
+
+  // --- Memory map: things ------------------------------------------------------
+
+  createThing(userId: number, t: NewThing): Thing {
+    const createdAt = this.stamp();
+    const aliases = t.aliases ?? [];
+    const { lastInsertRowid } = this.db
+      .prepare("INSERT INTO things (user_id, name, type, website, aliases, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(userId, t.name, t.type ?? null, t.website ?? null, JSON.stringify(aliases), createdAt);
+    return {
+      id: Number(lastInsertRowid), userId, name: t.name,
+      ...(t.type ? { type: t.type } : {}), ...(t.website ? { website: t.website } : {}), aliases, createdAt,
+    };
+  }
+
+  getThing(userId: number, thingId: number): Thing | undefined {
+    const row = this.db.prepare("SELECT * FROM things WHERE id = ? AND user_id = ?").get(thingId, userId) as Row | undefined;
+    return row ? toThing(row) : undefined;
+  }
+
+  listThings(userId: number): Thing[] {
+    return (this.db.prepare("SELECT * FROM things WHERE user_id = ? ORDER BY name COLLATE NOCASE, id").all(userId) as Row[]).map(toThing);
+  }
+
+  // This user's things whose name or other names match (any upper/lower case).
+  // Can return several: "Apollo" the sales tool and "Apollo" the coding tool.
+  findThingsByName(userId: number, name: string): Thing[] {
+    const wanted = name.trim().toLowerCase();
+    return this.listThings(userId).filter((t) => t.name.toLowerCase() === wanted || t.aliases.some((a) => a.toLowerCase() === wanted));
+  }
+
+  // Adds another name for a thing (e.g. "PostgreSQL" for "Postgres"). Ignores repeats.
+  addAlias(userId: number, thingId: number, alias: string): void {
+    const thing = this.getThing(userId, thingId);
+    const clean = alias.trim();
+    if (!thing || !clean) return;
+    const known = [thing.name, ...thing.aliases].some((n) => n.toLowerCase() === clean.toLowerCase());
+    if (known) return;
+    this.db.prepare("UPDATE things SET aliases = ? WHERE id = ? AND user_id = ?").run(JSON.stringify([...thing.aliases, clean]), thingId, userId);
+  }
+
+  // Fills in a missing type or website (never replaces one that is already set).
+  fillThing(userId: number, thingId: number, extra: { type?: string; website?: string }): void {
+    this.db.prepare("UPDATE things SET type = COALESCE(type, ?), website = COALESCE(website, ?) WHERE id = ? AND user_id = ?")
+      .run(extra.type ?? null, extra.website ?? null, thingId, userId);
+  }
+
+  // --- Memory map: mentions (chat → thing) ---------------------------------------
+
+  addMention(userId: number, m: { thingId: number; chatId: number; messageId?: number; createdAt?: string }): Mention {
+    if (!this.getThing(userId, m.thingId)) throw new Error(`Thing ${m.thingId} not found for this user.`);
+    if (!this.getChat(userId, m.chatId)) throw new Error(`Chat ${m.chatId} not found for this user.`);
+    const createdAt = m.createdAt ?? this.stamp();
+    const { lastInsertRowid } = this.db
+      .prepare("INSERT INTO mentions (user_id, thing_id, chat_id, message_id, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(userId, m.thingId, m.chatId, m.messageId ?? null, createdAt);
+    return { id: Number(lastInsertRowid), thingId: m.thingId, chatId: m.chatId, ...(m.messageId ? { messageId: m.messageId } : {}), createdAt };
+  }
+
+  // Where a thing was talked about, oldest first. Optional date range (ISO times, from <= t < to).
+  listMentions(userId: number, thingId: number, range: { from?: string; to?: string } = {}): Mention[] {
+    return (this.db
+      .prepare("SELECT * FROM mentions WHERE user_id = ? AND thing_id = ? AND created_at >= ? AND created_at < ? ORDER BY created_at, id")
+      .all(userId, thingId, range.from ?? "", range.to ?? "9999") as Row[]).map(toMention);
+  }
+
+  // The things a chat talked about.
+  listThingsInChat(userId: number, chatId: number): Thing[] {
+    return (this.db
+      .prepare("SELECT DISTINCT t.* FROM things t JOIN mentions m ON m.thing_id = t.id WHERE m.user_id = ? AND m.chat_id = ? ORDER BY t.id")
+      .all(userId, chatId) as Row[]).map(toThing);
+  }
+
+  // --- Memory map: facts ---------------------------------------------------------
+
+  // Saves a fact. Never replaces an older one: both stay, each with its date.
+  addFact(userId: number, f: NewFact): Fact {
+    if (!this.getThing(userId, f.thingId)) throw new Error(`Thing ${f.thingId} not found for this user.`);
+    if (f.chatId && !this.getChat(userId, f.chatId)) throw new Error(`Chat ${f.chatId} not found for this user.`);
+    const checkedAt = f.checkedAt ?? this.stamp();
+    const { lastInsertRowid } = this.db
+      .prepare("INSERT INTO facts (user_id, thing_id, field, value, source_url, chat_id, message_id, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(userId, f.thingId, f.field, f.value, f.sourceUrl ?? null, f.chatId ?? null, f.messageId ?? null, checkedAt);
+    return {
+      id: Number(lastInsertRowid), thingId: f.thingId, field: f.field, value: f.value,
+      ...(f.sourceUrl ? { sourceUrl: f.sourceUrl } : {}), ...(f.chatId ? { chatId: f.chatId } : {}),
+      ...(f.messageId ? { messageId: f.messageId } : {}), checkedAt,
+    };
+  }
+
+  // Every fact about a thing, oldest first (the full history).
+  listFacts(userId: number, thingId: number): Fact[] {
+    return (this.db.prepare("SELECT * FROM facts WHERE user_id = ? AND thing_id = ? ORDER BY checked_at, id").all(userId, thingId) as Row[]).map(toFact);
+  }
+
+  // The newest fact for each field of a thing (field names ignore upper/lower case).
+  latestFacts(userId: number, thingId: number): Fact[] {
+    const latest = new Map<string, Fact>();
+    for (const f of this.listFacts(userId, thingId)) latest.set(f.field.toLowerCase(), f); // later ones win
+    return [...latest.values()];
+  }
+}
+
+function toThing(r: Row): Thing {
+  return {
+    id: Number(r.id), userId: Number(r.user_id), name: String(r.name),
+    ...(r.type ? { type: String(r.type) } : {}), ...(r.website ? { website: String(r.website) } : {}),
+    aliases: safeJson<string[]>(String(r.aliases)) ?? [], createdAt: String(r.created_at),
+  };
+}
+
+function toMention(r: Row): Mention {
+  return {
+    id: Number(r.id), thingId: Number(r.thing_id), chatId: Number(r.chat_id),
+    ...(r.message_id ? { messageId: Number(r.message_id) } : {}), createdAt: String(r.created_at),
+  };
+}
+
+function toFact(r: Row): Fact {
+  return {
+    id: Number(r.id), thingId: Number(r.thing_id), field: String(r.field), value: String(r.value),
+    ...(r.source_url ? { sourceUrl: String(r.source_url) } : {}), ...(r.chat_id ? { chatId: Number(r.chat_id) } : {}),
+    ...(r.message_id ? { messageId: Number(r.message_id) } : {}), checkedAt: String(r.checked_at),
+  };
 }
 
 function toUser(r: Row): User {
