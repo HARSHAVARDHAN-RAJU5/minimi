@@ -1,9 +1,9 @@
 // Wires everything together: models + search + prompts → one chat() function.
 import type { Content } from "@google/genai";
 import { missingKeys, type Config } from "./config.js";
-import { answer, createGeminiModel, withFallback, type AgentEvent } from "./llm.js";
+import { answer, createGeminiModel, withFallback, type AgentEvent, type ChatModel, type FallbackInfo } from "./llm.js";
 import { plannerPrompt, writerPrompt } from "./prompts.js";
-import { webSearchFromConfig } from "./search.js";
+import { webSearchFromConfig, type WebSearch } from "./search.js";
 
 // Earlier messages on the page, so follow-ups like "and Supabase?" work.
 export interface ChatTurn { role: "user" | "assistant"; text: string }
@@ -14,27 +14,42 @@ export function toContents(history: ChatTurn[] = []): Content[] {
   return history.map((t) => ({ role: t.role === "assistant" ? "model" : "user", parts: [{ text: t.text }] }));
 }
 
+export function fallbackLine({ from, to, daily, skipped, until }: FallbackInfo): string {
+  const time = until ? until.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  if (skipped) return `writer: skipping ${from} (daily quota used up until ${time}) → ${to}`;
+  return `writer fallback ${from} → ${to} (${daily ? `daily quota used up; skipping it until ${time}` : "quota or busy"})`;
+}
+
 export function createAgent(config: Config, log: (line: string) => void = console.log): ChatFn {
+  // Built once on first use and kept, so the writer remembers a used-up daily quota between chats.
+  let parts: { planner: ChatModel; writer: ChatModel; search: WebSearch } | undefined;
+
   return async function* chat({ question, history, timezone }) {
     // Checked per chat (not at start-up) so the page still opens without keys.
     const missing = missingKeys(config);
     if (missing.length) throw new Error(`Add ${missing.join(" and ")} to .env (copy .env.example to .env first).`);
 
-    const fast = createGeminiModel(config.geminiApiKey!, config.geminiFastModel);
-    const smart = createGeminiModel(config.geminiApiKey!, config.geminiModel);
-    const writer = withFallback(smart, fast, ({ from, to, reason }) => {
-      const why = /PerDay|per day/i.test(reason) ? "daily quota used up" : /429|RESOURCE_EXHAUSTED|quota/i.test(reason) ? "quota" : "busy";
-      log(`writer fallback ${from} → ${to} (${why})`);
-    });
+    if (!parts) {
+      const fast = createGeminiModel(config.geminiApiKey!, config.geminiFastModel);
+      const smart = createGeminiModel(config.geminiApiKey!, config.geminiModel);
+      parts = {
+        planner: fast,
+        writer: withFallback(smart, fast, (info) => log(fallbackLine(info))),
+        search: webSearchFromConfig(config),
+      };
+    }
 
     yield* answer({
-      planner: fast,
-      writer,
-      search: webSearchFromConfig(config),
+      ...parts,
       plannerSystem: plannerPrompt(timezone),
       writerSystem: writerPrompt(timezone),
       question,
       history: toContents(history),
+      onTimings: (t) => log(
+        `timing: plan ${t.planMs.map(ms).join("+") || "-"}, search ${t.searchMs.map(ms).join("+") || "-"}, first word ${t.firstTextMs === undefined ? "-" : ms(t.firstTextMs)}, total ${ms(t.totalMs)}`,
+      ),
     });
   };
 }
+
+const ms = (n: number) => `${(n / 1000).toFixed(1)}s`;

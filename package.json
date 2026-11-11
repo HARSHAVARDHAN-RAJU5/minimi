@@ -13,7 +13,8 @@
     "test": "vitest run --project unit",
     "test:live": "vitest run --project live",
     "typecheck": "tsc --noEmit",
-    "eval:planner": "tsx scripts/eval-planner.ts"
+    "eval:planner": "tsx scripts/eval-planner.ts",
+    "eval:speed": "tsx scripts/eval-speed.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

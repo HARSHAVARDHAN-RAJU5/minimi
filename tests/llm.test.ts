@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { answer, createFakeModel, fake, withFallback, isQuotaOrBusy, MAX_SEARCH_ROUNDS, type AgentEvent, type ChatModel } from "../src/llm.js";
+import {
+  answer, createFakeModel, fake, withFallback, isQuotaOrBusy, isDailyQuota, retryAfterMs, MAX_SEARCH_ROUNDS,
+  type AgentEvent, type ChatModel, type FallbackInfo, type Timings,
+} from "../src/llm.js";
+import { fallbackLine } from "../src/agent.js";
 import { createFakeSearch, type WebSearch } from "../src/search.js";
 
 async function collect(gen: AsyncGenerator<AgentEvent>) {
@@ -178,5 +182,113 @@ describe("writer fallback", () => {
     expect(isQuotaOrBusy(quota)).toBe(true);
     expect(isQuotaOrBusy(new Error("503 UNAVAILABLE"))).toBe(true);
     expect(isQuotaOrBusy(new Error("400 INVALID_ARGUMENT"))).toBe(false);
+  });
+});
+
+describe("writer remembers a used-up daily quota", () => {
+  const daily = new Error('{"error":{"code":429,"message":"Quota exceeded ... GenerateRequestsPerDayPerProjectPerModel-FreeTier ... Please retry in 2h0m0s.","status":"RESOURCE_EXHAUSTED"}}');
+
+  it("skips the main writer until the reset time, then tries it again", async () => {
+    let t = 0;
+    let mainCalls = 0;
+    const main: ChatModel = { name: "smart", async *stream() { mainCalls++; throw daily; } };
+    const backup = createFakeModel([[[fake.text("ok")]]], "lite");
+    const infos: FallbackInfo[] = [];
+    const writer = withFallback(main, backup.model, (i) => infos.push(i), () => t);
+    const ask = () => run(createFakeModel([[[fake.text("x")]]]).model, writer, createFakeSearch().search);
+
+    await ask(); // refused once → remembered
+    t += 60 * 60 * 1000; // 1 hour later: still before the 2h reset
+    await ask();
+    expect(mainCalls).toBe(1);
+    expect(infos.map((i) => [i.daily, i.skipped])).toEqual([[true, false], [true, true]]);
+
+    t += 61 * 60 * 1000; // past the reset
+    await ask();
+    expect(mainCalls).toBe(2);
+  });
+
+  it("does not skip after a short (per-minute) limit", async () => {
+    let mainCalls = 0;
+    const main: ChatModel = { name: "smart", async *stream() { mainCalls++; throw new Error("429 RESOURCE_EXHAUSTED per minute"); } };
+    const writer = withFallback(main, createFakeModel([[[fake.text("ok")]]], "lite").model);
+    const ask = () => run(createFakeModel([[[fake.text("x")]]]).model, writer, createFakeSearch().search);
+    await ask();
+    await ask();
+    expect(mainCalls).toBe(2);
+  });
+
+  it("reads Google's wait time", () => {
+    expect(isDailyQuota(daily)).toBe(true);
+    expect(retryAfterMs(daily)).toBe(2 * 60 * 60 * 1000);
+    expect(retryAfterMs(new Error('"retryDelay":"77455s"'))).toBe(77455 * 1000);
+    expect(retryAfterMs(new Error("Please retry in 20h10m27.19s."))).toBe(((20 * 60 + 10) * 60 + 27.19) * 1000);
+    expect(retryAfterMs(new Error("no hint"))).toBe(60 * 60 * 1000);
+  });
+
+  it("writes a clear log line", () => {
+    const until = new Date(2026, 10, 12, 13, 30);
+    expect(fallbackLine({ from: "a", to: "b", reason: "", daily: true, skipped: false, until })).toMatch(/writer fallback a → b \(daily quota used up; skipping it until .*(13|0?1).*30/);
+    expect(fallbackLine({ from: "a", to: "b", reason: "", daily: true, skipped: true, until })).toMatch(/writer: skipping a \(daily quota used up until .*(13|0?1).*30.*\) → b/);
+    expect(fallbackLine({ from: "a", to: "b", reason: "", daily: false, skipped: false })).toBe("writer fallback a → b (quota or busy)");
+  });
+});
+
+describe("speed options", () => {
+  const ask = (planner: ChatModel, search: Parameters<typeof answer>[0]["search"], options: Parameters<typeof answer>[0]["options"], question = "Neon price?") => {
+    const writer = createFakeModel([[[fake.text("answer [1]")]]], "smart");
+    let timings: Timings | undefined;
+    const events = collect(answer({ planner, writer: writer.model, search, plannerSystem: "p", writerSystem: "w", question, options, onTimings: (t) => { timings = t; } }));
+    return { events, writer, timings: () => timings! };
+  };
+
+  it("earlySearch: searches the question while the planner thinks, and puts those results first", async () => {
+    const order: string[] = [];
+    const search: WebSearch = async (q) => { order.push(`start ${q}`); await new Promise((r) => setTimeout(r, 30)); order.push(`end ${q}`); return { results: [q === "Neon price?" ? neon : supa], provider: "fake" }; };
+    const planner: ChatModel = { name: "lite", async *stream() { order.push("planner"); yield [fake.text("NO_SEARCH")]; } };
+    const r = ask(planner, search, { earlySearch: true });
+    const events = await r.events;
+
+    expect(order.slice(0, 2)).toEqual(["start Neon price?", "planner"]); // search started before planning
+    expect(events[0]).toEqual({ type: "search", query: "Neon price?" });
+    expect(r.writer.inputs[0].contents.at(-1)!.parts![0].text).toContain('Search "Neon price?":\n[1] Neon pricing');
+  });
+
+  it("skipPlanner: never calls the planner", async () => {
+    const planner = createFakeModel([[[fake.search("x")]]], "lite");
+    const { search, queries } = createFakeSearch({ "Neon price?": [neon] });
+    await ask(planner.model, search, { skipPlanner: true }).events;
+    expect(planner.inputs).toHaveLength(0);
+    expect(queries).toEqual(["Neon price?"]);
+  });
+
+  it("maxResults / maxChars: the writer gets fewer, shorter results", async () => {
+    const long = { title: "Long", url: "https://long.example", content: "x".repeat(1000) };
+    const { search } = createFakeSearch({ q: [long, neon, supa] });
+    const r = ask(plannerFor("q").model, search, { maxResults: 2, maxChars: 100 });
+    await r.events;
+    const text = r.writer.inputs[0].contents.at(-1)!.parts![0].text!;
+    expect(text).toContain("x".repeat(100));
+    expect(text).not.toContain("x".repeat(101));
+    expect(text).toContain("[2] Neon pricing");
+    expect(text).not.toContain("Supabase");
+  });
+
+  it("an early search failure is reported, and the answer still comes", async () => {
+    const search: WebSearch = async () => { throw new Error("Exa: free credits used up"); };
+    const events = await ask(createFakeModel([[[fake.text("x")]]]).model, search, { skipPlanner: true }).events;
+    expect(events).toContainEqual({ type: "search_failed", query: "Neon price?", error: "Exa: free credits used up" });
+    expect(textOf(events)).toBe("answer [1]");
+  });
+
+  it("reports how long each part took", async () => {
+    const { search } = createFakeSearch({ q: [neon] });
+    const r = ask(plannerFor("q").model, search, {});
+    await r.events;
+    const t = r.timings();
+    expect(t.planMs).toHaveLength(2); // round 1 asks, round 2 stops
+    expect(t.searchMs).toHaveLength(1);
+    expect(t.firstTextMs).toBeGreaterThanOrEqual(0);
+    expect(t.totalMs).toBeGreaterThanOrEqual(t.firstTextMs!);
   });
 });
