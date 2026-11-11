@@ -1,6 +1,6 @@
 # Plan: "minimi" — chat agent with web search + long-term memory
 
-> **Status:** planning done, Phase 0 and Phase 1 done. Add, cut or change anything as we go.
+> **Status:** planning done, Phases 0–2 done. Add, cut or change anything as we go.
 
 ## Context
 Goal: a chat agent that feels as good as online chat apps, with **web search as its only tool**, and that **remembers past conversations by date and topic**, so it can answer:
@@ -70,16 +70,18 @@ Embeddings (number-vectors for meaning search) are on the "next week" list, not 
 
 ## Files to create
 ```
-package.json, tsconfig.json, .env.example (GEMINI_API_KEY, EXA_API_KEY, TAVILY_API_KEY optional, GEMINI_MODEL, GEMINI_FAST_MODEL, SEARCH_MODE, PORT)
+package.json, tsconfig.json, .env.example (GEMINI_API_KEY, EXA_API_KEY, TAVILY_API_KEY optional, GEMINI_MODEL, GEMINI_FAST_MODEL, SEARCH_MODE, PORT, DB_PATH)
 src/config.ts          settings from .env (done)
-src/app.ts             Express app + routes: /api/health (done), /api/chat (SSE, done), /vendor (page libraries, done), /api/users, /api/conversations
+src/app.ts             Express app + routes: /api/health, /api/users, /api/me, /vendor (page libraries) (done)
+src/db.ts              users, chats, messages, app_state (done); things, links, facts go here in Phase 3
+src/users.ts           name check + user guard (X-User-Id) (done)
+src/chats.ts           /api/chat (ask + save, SSE), /api/chats, /api/chats/:id (done)
 src/server.ts          starts the app (done)
 src/agent.ts           per-turn flow: route → retrieve → answer → background memory update
 src/search.ts          web_search: Exa main, Tavily backup, fake for tests (done)
 src/context.ts         chat note, code-built searches, path choice (done)
 src/llm.ts             Gemini wrapper (stream + web_search tool calls, JSON-mode calls)
 src/dates.ts           chrono-node resolution with timezone + "today" injection
-src/memory/db.ts       node:sqlite schema (messages, chats, things, links, facts) + FTS5 + indexes
 src/memory/graph.ts    match things/aliases, follow links, read facts
 src/memory/retrieve.ts date filter + map lookup + ranking + "ask user" when unclear
 src/memory/consolidate.ts  rewrite map, chat notes + user profile (join only when sure)
@@ -111,7 +113,7 @@ Tests: Vitest. Quick tests (`npm test`, fake Gemini) in every phase; live tests 
   2. Gemini (`src/llm.ts`): streaming, web_search tool calls (several at once), fake Gemini for tests.
   3. `/api/chat`: streams progress, answer text and sources; main prompt (shown to the user first).
   4. Chat page: text box, word-by-word answer, progress lines, source links; live browser check.
-- **Phase 2 – Saving chats:** users, chat list, messages saved with dates.
+- **Phase 2 – Saving chats:** ✔ done. Users, chat list, messages saved with dates; user-tested in the browser.
 - **Phase 3 – Memory map:** things, links and facts saved after each reply.
 - **Phase 4 – Remembering:** dates, finding the right old chat, "still true?" answers.
 - **Phase 5 – Extra features:** open loops, "still true?" check, decision log.

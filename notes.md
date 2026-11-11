@@ -5,7 +5,7 @@ Source for DESIGN.md. Rewrite points in place; don't append logs. Keep it to abo
 A chat agent as good as online chat apps. Web search is its only tool. It remembers past
 conversations by date and topic, so it can answer "Last Tuesday I asked about X. Has it changed?"
 Users: busy founders and team leads who juggle many jobs (the same people minimi serves).
-Status: Phase 1 (basic chat) done: chat page, web search, streaming answers with sources.
+Status: Phase 2 (saving chats) done: users, saved chats with dates, chat list, reopen chats.
 
 ## Rules
 - JS/TS on Node. Runs with `npm install` then `npm run dev`.
@@ -25,14 +25,15 @@ Status: Phase 1 (basic chat) done: chat page, web search, streaming answers with
 - Search: Exa main, Tavily backup (switches automatically if Exa fails or runs out). Gemini gets one tool, web_search; our code runs it, so we see every result and source. Why Exa: faster (about 0.5 s vs 1–2 s), 2,500 free searches a month vs 1,000, no card, so it works with the reviewer's free keys.
 - UI: simple web page served by the Node server.
 - Streaming: answers appear word by word, so the user never waits on a blank screen.
-- Users: multiple, each with separate memory.
+- Users: type a name (no password; a stand-in for login on a local app). Every database read is filtered by user, so one user never sees another's chats.
 - Storage: built-in `node:sqlite`, kept only on the user's computer (no cloud database, like minimi). No native build, so `npm install` stays reliable.
 - Memory is code around the model, so web search stays the only tool.
 - Memory map: things (Neon, HubSpot) + links (chat → mentions → Neon) + facts with date and source. Stored as tables in the same SQLite file.
-- Speed: code builds the searches when it finds a product name in the question or the chat's note (under 1 ms). The AI planner (lite, 1–14 s) is the backup when code finds nothing, or always with SEARCH_MODE=planner. If the planner breaks, search the question as-is.
-- Chat note: the writer adds a hidden <note> {things, topic} at the end of each answer; the server cuts it out of the stream. Missing or broken → code builds it from the searches. Kept by the page for now; moves to the database in Phase 2.
+- Speed: code builds the searches when it finds a product name in the question or the chat's note (under 1 ms). The AI planner (lite, 1–14 s) is the backup when code finds nothing, or always with SEARCH_MODE=planner. If the planner breaks, search the question as-is. Small talk (thanks/hi/ok) → no search at all. Planner: one round when its searches found something; dropped after 5 s → search the question as-is.
+- Chat note: the writer adds a hidden <note> {things, topic} at the end of each answer; the server cuts it out of the stream. Missing or broken → code builds it from the searches. Saved on the chat in the database; follow-ups load it from there.
+- Saving: the question is saved before answering (kept even if the answer fails); the answer after, with sources, searches, time zone and exact time. A cut-off answer is saved marked "stopped".
 - Seeding: pretend past chats with a "seed" label, for testing only. Same saving steps as real chats, deletable in one go. Real use starts empty.
-- Models: 3.8-flash writes answers (only 20 free requests/day; after a daily-quota refusal it's skipped until Google's reset time and lite writes). flash-lite is the backup planner.
+- Models: 3.8-flash writes answers (only 20 free requests/day; after a daily-quota refusal it's skipped until Google's reset time and lite writes). flash-lite is the backup planner. The "skip until" time is saved in the database (app_state table), so a restart doesn't waste a refused try.
 - Way of working: small steps; test, then commit after each one; /notes at the last step of each phase; notes go into that step's commit.
 - Tests: Vitest. Quick tests use a fake Gemini (fast, free, same result every time); live tests use the real one, run now and then.
 - Server: Express + TypeScript run by tsx. Settings via Node's built-in .env loader (no extra library). The page opens even without a key; chatting shows a clear "add your key" message.
@@ -70,11 +71,13 @@ Their users are busy founders and team leads. These features show the agent fits
 
 ## Open questions
 - Final rule list: pending.
+- Writer prompt: make "as of" use the exact date (one answer said "October/November 2026").
 - Re-run speed tests with 3.8 writing (normal vs less thinking), 3 runs each, at a quiet time.
 - Fresh test of code-built searches on 10 new chats. First test: code 10/10 vs AI planner 8/10, but the code was fixed against those same questions.
 
 ## Next week ideas
 - Embeddings (meaning-based search) for finding past conversations.
+- Real login with passwords.
 
 ## Learnings
 - npm 11 skips esbuild's setup script and warns about it. Harmless: tests and dev server still work.
@@ -84,3 +87,8 @@ Their users are busy founders and team leads. These features show the agent fits
 - Speed eval: skipping the planner cut the first word from ~10 s to ~4 s and stayed correct. Every AI call costs seconds; search itself is 0.4–1.4 s.
 - Gemini lite is sometimes overloaded (503 "high demand", 429 per minute); the same call swings 1–7 s. Compare versions in the same run.
 - To stop a dev server, stop the whole tsx watch, not just its child, or it comes back on the next code change. For tests, use npm start and stop that exact process.
+- Hindi names were rejected at first: Indian-script vowel signs are "marks", not "letters"; name check now allows both.
+- On Windows, stopping a background task doesn't stop the server inside it; stop the process on the test port. Browser tests use a separate port (3001) and DB_PATH.
+- Fastest answer so far: 2.2 s to first word (code-built search + skipping 3.8 while its quota is used up).
+- User test (12 stories as a real user) found 7 small issues; 5 fixed the same day. Code tests alone didn't catch them.
+- Google's lite model sometimes breaks an answer midway (503 "high demand"); the partial answer is saved as stopped and the error is now logged.
