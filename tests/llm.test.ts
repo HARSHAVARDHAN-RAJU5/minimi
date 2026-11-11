@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  answer, createFakeModel, fake, withFallback, isQuotaOrBusy, isDailyQuota, retryAfterMs, MAX_SEARCH_ROUNDS,
+  answer, createFakeModel, fake, withFallback, isQuotaOrBusy, isDailyQuota, retryAfterMs, MAX_SEARCH_ROUNDS, NoteStripper,
   type AgentEvent, type ChatModel, type FallbackInfo, type Timings,
 } from "../src/llm.js";
 import { fallbackLine } from "../src/agent.js";
@@ -290,5 +290,67 @@ describe("speed options", () => {
     expect(t.searchMs).toHaveLength(1);
     expect(t.firstTextMs).toBeGreaterThanOrEqual(0);
     expect(t.totalMs).toBeGreaterThanOrEqual(t.firstTextMs!);
+  });
+});
+
+describe("hidden note", () => {
+  it("cuts the note out of the stream even when split across chunks, and sends it as a note event", async () => {
+    const writer = createFakeModel([[[fake.text("Neon is $19 [1].\n<no")], [fake.text('te>{"things": ["Neon"], "topic"')], [fake.text(': "pricing"}</note>')]]], "smart");
+    const { search } = createFakeSearch({ "Neon pricing": [neon] });
+    const events = await collect(answer({
+      planner: plannerFor("Neon pricing").model, writer: writer.model, search, plannerSystem: "p", writerSystem: "w", question: "q",
+      options: { withNote: true },
+    }));
+    expect(textOf(events)).toBe("Neon is $19 [1].\n");
+    expect(textOf(events)).not.toContain("<");
+    expect(events).toContainEqual({ type: "note", note: { things: ["Neon"], topic: "pricing" } });
+    expect(typesOf(events).slice(-3)).toEqual(["note", "sources", "done"]);
+  });
+
+  it("lets other '<' text through", async () => {
+    const s = new NoteStripper();
+    expect(s.push("a < b and <b>bold</b>") + s.end()).toBe("a < b and <b>bold</b>");
+    const t = new NoteStripper();
+    expect(t.push("ends with <no") + t.end()).toBe("ends with <no");
+  });
+
+  it("missing or broken note: builds a backup note from the searches", async () => {
+    const writer = createFakeModel([[[fake.text("Answer. <note>{broken</note>")]]], "smart");
+    const { search } = createFakeSearch({ "Supabase Pro pricing 2026": [supa] });
+    const events = await collect(answer({
+      planner: plannerFor("Supabase Pro pricing 2026").model, writer: writer.model, search, plannerSystem: "p", writerSystem: "w",
+      question: "What does Supabase Pro cost?", options: { withNote: true },
+    }));
+    expect(textOf(events)).toBe("Answer. ");
+    expect(events).toContainEqual({ type: "note", note: { things: ["Supabase Pro"], topic: "pricing" } });
+  });
+});
+
+describe("searches built by code", () => {
+  it("runs the given searches at once and never calls the planner", async () => {
+    const planner = createFakeModel([[[fake.search("x")]]], "lite");
+    const { search, queries } = createFakeSearch({ "HubSpot pricing 2026": [neon], "Pipedrive pricing 2026": [supa] });
+    const events = await collect(answer({
+      planner: planner.model, writer: writerSays("ok [1] [2]").model, search, plannerSystem: "p", writerSystem: "w", question: "q",
+      options: { presetQueries: ["HubSpot pricing 2026", "Pipedrive pricing 2026"] },
+    }));
+    expect(planner.inputs).toHaveLength(0);
+    expect(queries).toEqual(["HubSpot pricing 2026", "Pipedrive pricing 2026"]);
+    expect(events.filter((e) => e.type === "search")).toHaveLength(2);
+  });
+});
+
+describe("planner breaks", () => {
+  it("searches the question as-is instead, and still answers", async () => {
+    const broken = createFakeModel([], "lite", new Error("503 UNAVAILABLE high demand"));
+    const { search, queries } = createFakeSearch({ "Neon price?": [neon] });
+    const errors: unknown[] = [];
+    const events = await collect(answer({
+      planner: broken.model, writer: writerSays("Neon $19 [1].").model, search, plannerSystem: "p", writerSystem: "w",
+      question: "Neon price?", onPlannerError: (e) => errors.push(e),
+    }));
+    expect(errors).toHaveLength(1);
+    expect(queries).toEqual(["Neon price?"]);
+    expect(textOf(events)).toBe("Neon $19 [1].");
   });
 });

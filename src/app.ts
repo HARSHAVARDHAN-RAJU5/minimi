@@ -1,8 +1,14 @@
 import express, { type Request, type Response } from "express";
 import { fileURLToPath } from "node:url";
 import type { ChatFn, ChatInput, ChatTurn } from "./agent.js";
+import { parseNote } from "./context.js";
 
 const publicDir = fileURLToPath(new URL("../public", import.meta.url));
+// Browser copies of two small libraries the page uses (installed by npm install, no CDN needed).
+const vendorFiles: Record<string, string> = {
+  "marked.js": fileURLToPath(new URL("../node_modules/marked/lib/marked.umd.js", import.meta.url)),
+  "purify.js": fileURLToPath(new URL("../node_modules/dompurify/dist/purify.js", import.meta.url)),
+};
 
 const MAX_QUESTION_CHARS = 4000;
 const MAX_HISTORY_TURNS = 20;
@@ -48,6 +54,12 @@ export function createApp({ chat }: AppDeps = {}) {
     }
   });
 
+  app.get("/vendor/:file", (req, res) => {
+    const file = vendorFiles[req.params.file];
+    if (file) res.type("application/javascript").sendFile(file);
+    else res.status(404).end();
+  });
+
   app.use(express.static(publicDir));
   return app;
 }
@@ -67,5 +79,6 @@ export function parseChatInput(body: unknown): ChatInput | { error: string } {
       .slice(-MAX_HISTORY_TURNS);
   }
   const timezone = typeof b.timezone === "string" ? b.timezone : undefined;
-  return { question, history, timezone };
+  const note = b.note === undefined ? undefined : parseNote(b.note); // a bad note is ignored, not an error
+  return { question, history, timezone, ...(note ? { note } : {}) };
 }

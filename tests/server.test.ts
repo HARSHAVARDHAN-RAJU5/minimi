@@ -26,4 +26,13 @@ describe("server", () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("minimi agent");
   });
+
+  it("serves the formatting libraries the page uses", async () => {
+    for (const file of ["marked.js", "purify.js"]) {
+      const res = await fetch(`${baseUrl}/vendor/${file}`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("javascript");
+    }
+    expect((await fetch(`${baseUrl}/vendor/other.js`)).status).toBe(404);
+  });
 });

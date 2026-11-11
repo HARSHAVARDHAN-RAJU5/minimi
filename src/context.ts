@@ -20,15 +20,23 @@ export function splitNote(text: string): { answer: string; note?: ChatNote } {
   const m = NOTE_RE.exec(text);
   if (!m) return { answer: text.trim() };
   const answer = (text.slice(0, m.index) + text.slice(m.index + m[0].length)).trim();
-  try {
-    const raw = JSON.parse(m[1]) as { things?: unknown; topic?: unknown };
-    const things = Array.isArray(raw.things) ? raw.things.filter((t): t is string => typeof t === "string" && t.trim() !== "").map((t) => t.trim()) : [];
-    const topic = typeof raw.topic === "string" ? raw.topic.trim() : "";
-    if (things.length === 0 || !topic) return { answer };
-    return { answer, note: { things, topic } };
-  } catch {
-    return { answer };
+  const note = parseNote(m[1]);
+  return note ? { answer, note } : { answer };
+}
+
+// Reads a note from JSON text, or from any object (e.g. sent back by the page). Keeps it small and clean.
+export function parseNote(raw: unknown): ChatNote | undefined {
+  let value = raw;
+  if (typeof raw === "string") {
+    try { value = JSON.parse(raw); } catch { return undefined; }
   }
+  if (!value || typeof value !== "object") return undefined;
+  const v = value as { things?: unknown; topic?: unknown };
+  const things = Array.isArray(v.things)
+    ? v.things.filter((t): t is string => typeof t === "string" && t.trim() !== "").map((t) => t.trim().slice(0, 60)).slice(0, 10)
+    : [];
+  const topic = typeof v.topic === "string" ? v.topic.trim().slice(0, 60) : "";
+  return things.length && topic ? { things, topic } : undefined;
 }
 
 // --- Word lists -------------------------------------------------------------
@@ -109,8 +117,10 @@ export function buildSearches(question: string, note?: ChatNote, year = new Date
   const words = topicWordsIn(q, names);
   let reason = "names in question";
 
-  // No names: use the note (pronouns tell us one thing or all of them).
-  if (names.length === 0 && note) {
+  // No names: use the note, but only if the question is really about those things
+  // (a pronoun, a comparison, price/news words, or a question). "thanks!" is not.
+  const aboutThings = hasAny(lower, [...SINGLE_PRONOUNS, ...PLURAL_PRONOUNS, ...COMPARE_WORDS, ...PRICE_WORDS, ...NEWS_WORDS]) || q.endsWith("?");
+  if (names.length === 0 && note && aboutThings) {
     names = hasAny(lower, PLURAL_PRONOUNS) ? note.things : note.things.slice(0, 1);
     reason = "names from note";
   } else if (note && hasAny(lower, SINGLE_PRONOUNS) && !names.some((n) => n.toLowerCase() === note.things[0]?.toLowerCase())) {
@@ -148,4 +158,18 @@ export function noteFromSearches(question: string, queries: string[]): ChatNote 
   const text = [question, ...queries].join(" ").toLowerCase();
   const topic = hasAny(text, PRICE_WORDS) ? "pricing" : hasAny(text, NEWS_WORDS) ? "new features" : topicWordsIn(question, things).slice(0, 3).join(" ") || "general";
   return { things, topic };
+}
+
+// --- Choosing the path --------------------------------------------------------
+
+export type SearchMode = "code-first" | "planner";
+export interface SearchPath { path: "code" | "planner"; queries?: string[]; reason: string }
+
+// code-first: code builds the searches when it finds a product name (in the question or the note);
+// the AI planner is the backup when code finds nothing. planner: always the AI planner.
+export function chooseSearchPath(question: string, note: ChatNote | undefined, mode: SearchMode, year?: number): SearchPath {
+  if (mode === "planner") return { path: "planner", reason: "SEARCH_MODE=planner" };
+  const built = buildSearches(question, note, year);
+  if (built.reason === "question as-is") return { path: "planner", reason: "code found no product name" };
+  return { path: "code", queries: built.queries, reason: built.reason };
 }

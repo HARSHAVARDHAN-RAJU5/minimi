@@ -27,8 +27,14 @@ describe("config", () => {
     });
     expect(config).toEqual({
       geminiApiKey: "g", geminiModel: "m1", geminiFastModel: "m2",
-      exaApiKey: "e", tavilyApiKey: "t", port: 4000,
+      exaApiKey: "e", tavilyApiKey: "t", searchMode: "code-first", port: 4000,
     });
+  });
+
+  it("reads SEARCH_MODE and rejects unknown values", () => {
+    expect(loadConfig({}).searchMode).toBe("code-first");
+    expect(loadConfig({ SEARCH_MODE: "planner" }).searchMode).toBe("planner");
+    expect(() => loadConfig({ SEARCH_MODE: "magic" })).toThrow('SEARCH_MODE must be "code-first" or "planner"');
   });
 
   it("rejects a bad port", () => {

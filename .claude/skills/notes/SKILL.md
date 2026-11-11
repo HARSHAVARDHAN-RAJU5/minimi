@@ -15,4 +15,4 @@ Update `notes.md` to match the current state of the project.
    - A question got answered → move it out of "Open questions".
 4. Merge duplicates. Keep it to about one page, with short plain bullets.
 5. Also update `plan.md` to match: same changes, plan wording.
-6. Show the user the changed lines in both files (before → after) and wait for OK before saving.
+6. Show the user the changed lines in both files (before → after) and wait for OK before saving. Don't commit separately: the changes go into the commit of the phase's last step.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSearches, namesIn, noteFromSearches, splitNote } from "../src/context.js";
+import { buildSearches, chooseSearchPath, namesIn, noteFromSearches, parseNote, splitNote } from "../src/context.js";
 
 const q = (question: string, note?: { things: string[]; topic: string }) => buildSearches(question, note, 2026).queries;
 
@@ -70,5 +70,35 @@ describe("noteFromSearches (backup note)", () => {
   it("builds things and topic from the searches we ran", () => {
     expect(noteFromSearches("What does Supabase Pro cost?", ["Supabase Pro pricing 2026"])).toEqual({ things: ["Supabase Pro"], topic: "pricing" });
     expect(noteFromSearches("hello", [])).toBeUndefined();
+  });
+});
+
+describe("chooseSearchPath", () => {
+  const note = { things: ["Neon"], topic: "pricing" };
+
+  it("code builds the searches when it finds a product name", () => {
+    expect(chooseSearchPath("What does Supabase Pro cost?", undefined, "code-first", 2026)).toEqual({
+      path: "code", queries: ["Supabase Pro cost 2026"], reason: "names in question",
+    });
+    expect(chooseSearchPath("and Supabase?", note, "code-first", 2026)).toMatchObject({ path: "code", queries: ["Supabase pricing 2026"] });
+    expect(chooseSearchPath("is it cheaper?", note, "code-first", 2026)).toMatchObject({ path: "code", reason: "names from note" });
+  });
+
+  it("the AI planner is the backup when code finds nothing", () => {
+    expect(chooseSearchPath("what does supabase cost", undefined, "code-first")).toEqual({ path: "planner", reason: "code found no product name" });
+    expect(chooseSearchPath("thanks!", note, "code-first")).toEqual({ path: "planner", reason: "code found no product name" });
+  });
+
+  it("SEARCH_MODE=planner always uses the AI planner", () => {
+    expect(chooseSearchPath("What does Supabase Pro cost?", note, "planner")).toEqual({ path: "planner", reason: "SEARCH_MODE=planner" });
+  });
+});
+
+describe("parseNote (from the page)", () => {
+  it("accepts a clean object, trims it, and ignores junk", () => {
+    expect(parseNote({ things: ["Neon", 5, " Supabase "], topic: "pricing" })).toEqual({ things: ["Neon", "Supabase"], topic: "pricing" });
+    expect(parseNote({ things: [], topic: "x" })).toBeUndefined();
+    expect(parseNote("nope")).toBeUndefined();
+    expect(parseNote({ things: Array.from({ length: 30 }, (_, i) => `T${i}`), topic: "t" })?.things).toHaveLength(10);
   });
 });

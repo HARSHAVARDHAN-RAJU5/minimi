@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import type { SearchMode } from "./context.js";
 
 export interface Config {
   geminiApiKey?: string;
@@ -6,6 +7,7 @@ export interface Config {
   geminiFastModel: string; // background chores (fast)
   exaApiKey?: string; // main web search
   tavilyApiKey?: string; // backup web search
+  searchMode: SearchMode; // who builds the searches: code first (AI planner as backup), or always the AI planner
   port: number;
 }
 
@@ -31,8 +33,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     geminiFastModel: read(env, "GEMINI_FAST_MODEL") ?? DEFAULT_FAST_MODEL,
     exaApiKey: read(env, "EXA_API_KEY"),
     tavilyApiKey: read(env, "TAVILY_API_KEY"),
+    searchMode: readSearchMode(read(env, "SEARCH_MODE")),
     port,
   };
+}
+
+function readSearchMode(value?: string): SearchMode {
+  if (!value || value === "code-first") return "code-first";
+  if (value === "planner") return "planner";
+  throw new Error(`SEARCH_MODE must be "code-first" or "planner", got "${value}"`);
 }
 
 // The server can start without keys (so the page loads), but chatting needs them.

@@ -1,4 +1,5 @@
 // The instructions given to the models. Kept in one place so they are easy to tune.
+import { NOTE_INSTRUCTION } from "./context.js";
 
 // "Wednesday, 11 November 2026" in the user's time zone. A bad time zone falls back to the server's.
 export function todayText(timezone?: string, now = new Date()): { date: string; timezone: string } {
@@ -49,5 +50,7 @@ Accuracy (most important):
 Style:
 - Lead with the direct answer in 1–2 sentences, then details.
 - Use a short table when comparing 3 or more options.
-- Keep it tight: no filler, no repeating the question.`;
+- Keep it tight: no filler, no repeating the question.
+
+${NOTE_INSTRUCTION}`;
 }

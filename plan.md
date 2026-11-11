@@ -1,6 +1,6 @@
 # Plan: "minimi" — chat agent with web search + long-term memory
 
-> **Status:** planning done, Phase 0 done. Add, cut or change anything as we go.
+> **Status:** planning done, Phase 0 and Phase 1 done. Add, cut or change anything as we go.
 
 ## Context
 Goal: a chat agent that feels as good as online chat apps, with **web search as its only tool**, and that **remembers past conversations by date and topic**, so it can answer:
@@ -9,20 +9,20 @@ Goal: a chat agent that feels as good as online chat apps, with **web search as 
 - "Last Tuesday I asked about Postgres hosting. Has pricing changed?"
 
 Rules: JS/TS on Node · `npm install` then `npm run dev` · every key in `.env.example` · any model/framework.
-Choices made: **Gemini** (free tier), **simple web UI**, **multiple users**, free search.
+Choices made: **Gemini** (free tier), **simple web UI**, **multiple users**, free search (Exa, Tavily backup).
 
 ## Main idea (plain words)
 When you send a message:
 1. Code works out the real dates ("last Tuesday" → 2026-11-03) and asks Gemini a quick question: "does this need old conversations? which topics?"
 2. Code uses the **memory map** to find matching chats, then reads the real saved messages and facts (what you asked, what we answered, prices with sources, as-of date).
-3. Gemini answers with Google Search turned on, comparing "what we said then" with "what's true now", and cites its sources.
+3. Gemini answers, using the web_search tool (Exa, Tavily backup) when needed, comparing "what we said then" with "what's true now", and cites its sources.
 4. Search results are saved while answering. After the reply, one background AI call **rewrites** (not appends) the map, the chat summary and your profile.
 
 Memory lives in code around the model, so web search stays the model's only tool.
 
 ## Stack
-- **Model:** Gemini via `@google/genai`. The model name comes from `GEMINI_MODEL` in env (default: current Flash model).
-- **Search:** Gemini's built-in **Grounding with Google Search** tool. It's free within free-tier limits, needs no extra key, and gives source URLs. Fallback if limits bite: Tavily (free tier, `TAVILY_API_KEY`, optional). I'll check the current free-tier limits when building.
+- **Models:** Gemini via `@google/genai`. `gemini-3.8-flash` for answers (`GEMINI_MODEL`), `gemini-3.5-flash-lite` for background chores (`GEMINI_FAST_MODEL`). Code picks per job.
+- **Search:** one tool, `web_search`, given to Gemini. Code runs Exa (main: 2,500 free/month, no card) and switches to Tavily automatically if Exa fails or runs out. Keys: `EXA_API_KEY`, `TAVILY_API_KEY` (optional).
 - **Server:** Node 24 + TypeScript + Express, run with `tsx watch`. Replies stream to the browser over SSE (Server-Sent Events, a one-way live stream from server to browser).
 - **Storage:** built-in `node:sqlite` (no native build step, so `npm install` stays reliable on Windows). `engines: node >=22.13`.
 - **Dates:** `chrono-node` turns "Monday", "3 November" and "last Tuesday" into real dates in the user's timezone. This is plain code, not the model guessing.
@@ -70,12 +70,14 @@ Embeddings (number-vectors for meaning search) are on the "next week" list, not 
 
 ## Files to create
 ```
-package.json, tsconfig.json, .env.example (GEMINI_API_KEY, GEMINI_MODEL, TAVILY_API_KEY optional, PORT)
+package.json, tsconfig.json, .env.example (GEMINI_API_KEY, EXA_API_KEY, TAVILY_API_KEY optional, GEMINI_MODEL, GEMINI_FAST_MODEL, SEARCH_MODE, PORT)
 src/config.ts          settings from .env (done)
-src/app.ts             Express app + routes: /api/health (done), /api/users, /api/conversations, /api/chat (SSE)
+src/app.ts             Express app + routes: /api/health (done), /api/chat (SSE, done), /vendor (page libraries, done), /api/users, /api/conversations
 src/server.ts          starts the app (done)
 src/agent.ts           per-turn flow: route → retrieve → answer → background memory update
-src/llm.ts             Gemini wrapper (stream + grounding, JSON-mode calls)
+src/search.ts          web_search: Exa main, Tavily backup, fake for tests (done)
+src/context.ts         chat note, code-built searches, path choice (done)
+src/llm.ts             Gemini wrapper (stream + web_search tool calls, JSON-mode calls)
 src/dates.ts           chrono-node resolution with timezone + "today" injection
 src/memory/db.ts       node:sqlite schema (messages, chats, things, links, facts) + FTS5 + indexes
 src/memory/graph.ts    match things/aliases, follow links, read facts
@@ -83,8 +85,8 @@ src/memory/retrieve.ts date filter + map lookup + ranking + "ask user" when uncl
 src/memory/consolidate.ts  rewrite map, chat notes + user profile (join only when sure)
 scripts/seed.ts        seed / clear pretend chats (label "seed")
 tests/tricky.test.ts   tricky-question test list (same names, same topic different days, changed prices)
-src/prompts.ts         system/router/consolidation prompts
-public/index.html, public/app.js, public/style.css
+src/prompts.ts         planner + writer prompts (done); consolidation prompts later
+public/index.html, public/app.js, public/style.css   chat page (done)
 notes.md               dev notes (see below)
 .claude/skills/notes/SKILL.md   /notes skill
 CLAUDE.md              short: commands + architecture (after code exists)
@@ -97,14 +99,18 @@ CLAUDE.md              short: commands + architecture (after code exists)
 - At the end, DESIGN.md is drafted from `notes.md`.
 
 ## Build phases
-How we work: each phase = what + why + small steps. After every step: test, then commit. After every phase: `/notes`.
+How we work: each phase = what + why + small steps. After every step: test, then commit. In the last step of each phase: run `/notes` and include notes.md + plan.md in that step's commit (no separate commit).
 Tests: Vitest. Quick tests (`npm test`, fake Gemini) in every phase; live tests (`npm run test:live`, real Gemini) now and then.
 
 - **Phase 0 – Setup:** ✔ done. Empty project, Vitest, `npm run dev` shows a blank page.
   1. `package.json`, `tsconfig.json`, TypeScript + tsx + Vitest, one example test.
   2. `.env.example` + `src/config.ts` (clear message if the Gemini key is missing).
   3. Express server + blank page + `/api/health`.
-- **Phase 1 – Basic chat:** Gemini + web search, streaming, source links.
+- **Phase 1 – Basic chat:** ✔ done. Gemini + web search, streaming, source links. Code builds searches first; AI planner as backup (SEARCH_MODE switch).
+  1. Web search + settings: Exa first, Tavily backup, clear error if both fail, fake search for tests.
+  2. Gemini (`src/llm.ts`): streaming, web_search tool calls (several at once), fake Gemini for tests.
+  3. `/api/chat`: streams progress, answer text and sources; main prompt (shown to the user first).
+  4. Chat page: text box, word-by-word answer, progress lines, source links; live browser check.
 - **Phase 2 – Saving chats:** users, chat list, messages saved with dates.
 - **Phase 3 – Memory map:** things, links and facts saved after each reply.
 - **Phase 4 – Remembering:** dates, finding the right old chat, "still true?" answers.
@@ -123,5 +129,6 @@ Per your instructions, I'll show you the exact text of the prompts, the `/notes`
 - Run `/notes` twice. `notes.md` should stay one page, with no duplicate points.
 
 ## Open points to confirm
-- Gemini: current free model and search limits. Check in Phase 1 (default now gemini-2.5-flash); Tavily fallback ready.
+- Free limits: Exa 2,500/month, Tavily 1,000/month. Watch usage during live tests.
+- Compare SEARCH_MODE code-first vs planner on fresh questions, then pick the default.
 - Node ≥22.13 is required for `node:sqlite` (you have 24.22 ✔). If the grader might use older Node, switch to `sql.js`.

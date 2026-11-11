@@ -61,6 +61,15 @@ describe("/api/chat", () => {
     expect(seen[0]).toEqual({ question: "and Supabase?", history: [{ role: "user", text: "Neon price?" }, { role: "assistant", text: "$19" }], timezone: "Asia/Kolkata" });
   });
 
+  it("passes the note back from the page; a bad note is ignored", async () => {
+    const seen: ChatInput[] = [];
+    const url = await start(fakeChat(seen));
+    await (await post(url, { question: "and Supabase?", note: { things: ["Neon"], topic: "pricing" } })).text();
+    await (await post(url, { question: "q", note: "junk" })).text();
+    expect(seen[0].note).toEqual({ things: ["Neon"], topic: "pricing" });
+    expect(seen[1].note).toBeUndefined();
+  });
+
   it("rejects an empty or missing question with a clear message", async () => {
     const url = await start(fakeChat());
     for (const body of [{}, { question: "   " }, { question: 42 }]) {

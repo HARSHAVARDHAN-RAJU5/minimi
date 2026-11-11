@@ -7,7 +7,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import type { Content } from "@google/genai";
 import { loadConfig, loadEnvFile, requireGeminiKey } from "../src/config.js";
-import { buildSearches, noteFromSearches, splitNote, NOTE_INSTRUCTION, type ChatNote } from "../src/context.js";
+import { buildSearches, noteFromSearches, splitNote, type ChatNote } from "../src/context.js";
 import { answer, createGeminiModel, isDailyQuota, isQuotaOrBusy, type ChatModel } from "../src/llm.js";
 import { plannerPrompt, writerPrompt } from "../src/prompts.js";
 import { webSearchFromConfig } from "../src/search.js";
@@ -72,7 +72,7 @@ for (const c of CASES) {
       text = ""; searches.length = 0;
       for await (const e of answer({
         planner: lite, writer: lite, search, question: c.first,
-        plannerSystem: plannerPrompt(TZ), writerSystem: `${writerPrompt(TZ)}\n\n${NOTE_INSTRUCTION}`,
+        plannerSystem: plannerPrompt(TZ), writerSystem: writerPrompt(TZ), // includes the note instruction
       })) {
         if (e.type === "text") text += e.text;
         if (e.type === "search") searches.push(e.query);

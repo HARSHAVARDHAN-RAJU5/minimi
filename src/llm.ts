@@ -5,6 +5,7 @@
 //   If the writer is out of quota, a backup writer (fast model) takes over.
 import { GoogleGenAI, FunctionCallingConfigMode, ThinkingLevel, type Content, type Part, type Tool } from "@google/genai";
 import type { SearchResult, WebSearch } from "./search.js";
+import { noteFromSearches, parseNote, type ChatNote } from "./context.js";
 
 export const MAX_SEARCH_ROUNDS = 3;
 
@@ -20,12 +21,13 @@ export const WEB_SEARCH_TOOL: Tool = {
   }],
 };
 
-// What answer() sends out, in order: search… → text… → sources → done.
+// What answer() sends out, in order: search… → text… → note → sources → done.
 export interface Source { n: number; title: string; url: string; publishedDate?: string }
 export type AgentEvent =
   | { type: "search"; query: string }
   | { type: "search_failed"; query: string; error: string }
   | { type: "text"; text: string }
+  | { type: "note"; note: ChatNote } // hidden "what we're talking about" note, for the next question
   | { type: "sources"; sources: Source[] }
   | { type: "done" };
 
@@ -128,6 +130,8 @@ export interface AnswerOptions {
   skipPlanner?: boolean; // no planner: search the question as-is, then write
   maxResults?: number; // results kept per search (search returns up to 5)
   maxChars?: number; // page text kept per result (search returns up to 1,500)
+  presetQueries?: string[]; // searches built by code: run these, skip the planner
+  withNote?: boolean; // the writer adds a hidden <note>; cut it out and send it as a "note" event
 }
 
 // How long each part took, in milliseconds from the start of answer().
@@ -148,6 +152,7 @@ export interface AnswerInput {
   history?: Content[]; // earlier turns of this chat (plain text)
   options?: AnswerOptions;
   onTimings?: (t: Timings) => void;
+  onPlannerError?: (err: unknown) => void; // planner broke; we searched the question as-is instead
   clock?: () => number;
 }
 
@@ -163,85 +168,151 @@ export async function* answer(input: AnswerInput): AsyncGenerator<AgentEvent> {
   const keep = (results: SearchResult[]) =>
     results.slice(0, options.maxResults).map((r) => (options.maxChars ? { ...r, content: r.content.slice(0, options.maxChars) } : r));
 
-  // Search the question as-is, either alongside planning (earlySearch) or instead of it (skipPlanner).
-  const direct = options.earlySearch || options.skipPlanner;
-  const directStart = clock();
-  const directSearch = direct ? search(question).finally(() => timings.searchMs.push(clock() - directStart)) : undefined;
-  directSearch?.catch(() => {}); // handled below; avoids an "unhandled rejection" while planning runs
-  if (direct) yield { type: "search", query: question };
-
-  // 1) Planning: the planner asks for searches, up to MAX_SEARCH_ROUNDS rounds.
-  const planContents: Content[] = [...history, { role: "user", parts: [{ text: question }] }];
-  for (let round = 0; round < (options.skipPlanner ? 0 : MAX_SEARCH_ROUNDS); round++) {
-    const planStart = clock();
-    const modelParts: Part[] = [];
-    for await (const parts of planner.stream({ system: plannerSystem, contents: planContents, tools: true })) {
-      modelParts.push(...parts); // planner text is a draft, never shown
-    }
-    timings.planMs.push(clock() - planStart);
-    // Keep the planner's own message exactly as given (it carries hidden thought signatures).
-    planContents.push({ role: "model", parts: modelParts });
-
-    const calls = modelParts.filter((p) => p.functionCall?.name === "web_search").map((p) => p.functionCall!);
-    if (calls.length === 0) break;
-
-    const queries = calls.map((c) => String(c.args?.query ?? "").trim());
+  // Runs one round of searches at the same time; records results; returns each outcome.
+  async function* searchRound(queries: string[]): AsyncGenerator<AgentEvent, Array<Record<string, unknown>>> {
     for (const query of queries) yield { type: "search", query };
-
-    // All searches of a round run at the same time.
     const searchStart = clock();
     const outcomes = await Promise.allSettled(queries.map((q) => search(q)));
     timings.searchMs.push(clock() - searchStart);
-
-    const responses: Part[] = [];
-    for (let i = 0; i < calls.length; i++) {
+    const responses: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < queries.length; i++) {
       const outcome = outcomes[i];
-      let response: Record<string, unknown>;
       if (outcome.status === "fulfilled") {
         const results = keep(outcome.value.results).map((r) => numbered(sources, r));
         found.push({ query: queries[i], results });
-        response = { results };
+        responses.push({ results });
       } else {
-        const error = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+        const error = errorText(outcome.reason);
         found.push({ query: queries[i], error });
         yield { type: "search_failed", query: queries[i], error };
-        response = { error: `search failed: ${error}` };
+        responses.push({ error: `search failed: ${error}` });
       }
-      responses.push({ functionResponse: { id: calls[i].id, name: "web_search", response } });
     }
-    planContents.push({ role: "user", parts: responses });
+    return responses;
   }
 
-  // The direct search's results go first.
-  if (directSearch) {
-    try {
-      const results = keep((await directSearch).results).map((r) => numbered(sources, r));
-      found.unshift({ query: question, results });
-    } catch (err) {
-      const error = errorText(err);
-      found.unshift({ query: question, error });
-      yield { type: "search_failed", query: question, error };
+  const preset = options.presetQueries?.filter((q) => q.trim());
+  if (preset?.length) {
+    // 1a) Code already built the searches: no planner.
+    yield* searchRound(preset);
+  } else {
+    // Search the question as-is, either alongside planning (earlySearch) or instead of it (skipPlanner).
+    const direct = options.earlySearch || options.skipPlanner;
+    const directStart = clock();
+    const directSearch = direct ? search(question).finally(() => timings.searchMs.push(clock() - directStart)) : undefined;
+    directSearch?.catch(() => {}); // handled below; avoids an "unhandled rejection" while planning runs
+    if (direct) yield { type: "search", query: question };
+
+    // 1b) Planning: the planner asks for searches, up to MAX_SEARCH_ROUNDS rounds.
+    const planContents: Content[] = [...history, { role: "user", parts: [{ text: question }] }];
+    for (let round = 0; round < (options.skipPlanner ? 0 : MAX_SEARCH_ROUNDS); round++) {
+      const planStart = clock();
+      const modelParts: Part[] = [];
+      try {
+        for await (const parts of planner.stream({ system: plannerSystem, contents: planContents, tools: true })) {
+          modelParts.push(...parts); // planner text is a draft, never shown
+        }
+      } catch (err) {
+        timings.planMs.push(clock() - planStart);
+        input.onPlannerError?.(err);
+        // Planner broke: on the first round, search the question as-is; later, write with what we have.
+        if (round === 0 && !direct) yield* searchRound([question]);
+        break;
+      }
+      timings.planMs.push(clock() - planStart);
+      // Keep the planner's own message exactly as given (it carries hidden thought signatures).
+      planContents.push({ role: "model", parts: modelParts });
+
+      const calls = modelParts.filter((p) => p.functionCall?.name === "web_search").map((p) => p.functionCall!);
+      if (calls.length === 0) break;
+
+      const responses = yield* searchRound(calls.map((c) => String(c.args?.query ?? "").trim()));
+      planContents.push({
+        role: "user",
+        parts: calls.map((c, i) => ({ functionResponse: { id: c.id, name: "web_search", response: responses[i] } })),
+      });
+    }
+
+    // The direct search's results go first.
+    if (directSearch) {
+      try {
+        const results = keep((await directSearch).results).map((r) => numbered(sources, r));
+        found.unshift({ query: question, results });
+      } catch (err) {
+        const error = errorText(err);
+        found.unshift({ query: question, error });
+        yield { type: "search_failed", query: question, error };
+      }
     }
   }
 
   // 2) Writing: the writer gets the question plus results as plain numbered text
   //    (another model's tool messages and thought signatures can't be passed across models).
   const writeContents: Content[] = [...history, { role: "user", parts: [{ text: withResults(question, found) }] }];
+  const stripper = options.withNote ? new NoteStripper() : undefined;
   let fullText = "";
+  const emit = (text: string): AgentEvent | undefined => {
+    if (!text) return undefined;
+    if (timings.firstTextMs === undefined) timings.firstTextMs = clock() - start;
+    fullText += text;
+    return { type: "text", text };
+  };
   for await (const parts of writer.stream({ system: writerSystem, contents: writeContents, tools: false })) {
     for (const part of parts) {
       if (part.text && !part.thought) {
-        if (timings.firstTextMs === undefined) timings.firstTextMs = clock() - start;
-        fullText += part.text;
-        yield { type: "text", text: part.text };
+        const event = emit(stripper ? stripper.push(part.text) : part.text);
+        if (event) yield event;
       }
     }
+  }
+  if (stripper) {
+    const event = emit(stripper.end());
+    if (event) yield event;
+    const note = parseNote(stripper.noteText) ?? noteFromSearches(question, found.map((f) => f.query));
+    if (note) yield { type: "note", note };
   }
 
   yield { type: "sources", sources: citedSources(fullText, [...sources.values()]) };
   timings.totalMs = clock() - start;
   onTimings?.(timings);
   yield { type: "done" };
+}
+
+// Cuts a hidden <note>…</note> out of streamed text, even when it arrives split across
+// chunks, so it never reaches the page. Anything else starting with "<" passes through.
+export class NoteStripper {
+  private buffer = "";
+  noteText?: string;
+
+  push(text: string): string {
+    this.buffer += text;
+    let out = "";
+    for (;;) {
+      const lt = this.buffer.indexOf("<");
+      if (lt === -1) { out += this.buffer; this.buffer = ""; return out; }
+      out += this.buffer.slice(0, lt);
+      const rest = this.buffer.slice(lt);
+      const lower = rest.toLowerCase();
+      if (lower.startsWith("<note>")) {
+        const end = lower.indexOf("</note>");
+        if (end === -1) { this.buffer = rest; return out; } // wait for the rest of the note
+        this.noteText = rest.slice(6, end);
+        this.buffer = rest.slice(end + 7);
+        continue;
+      }
+      if ("<note>".startsWith(lower)) { this.buffer = rest; return out; } // could still become "<note>"
+      out += "<";
+      this.buffer = rest.slice(1);
+    }
+  }
+
+  // End of the answer: release held text, except an unfinished note (dropped).
+  end(): string {
+    const rest = this.buffer;
+    this.buffer = "";
+    if (rest.toLowerCase().startsWith("<note>")) return "";
+    return rest;
+  }
 }
 
 // Gives each result a number [n] (same link → same number) and returns what the models see.

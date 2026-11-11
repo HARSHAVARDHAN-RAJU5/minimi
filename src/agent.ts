@@ -1,13 +1,15 @@
 // Wires everything together: models + search + prompts → one chat() function.
 import type { Content } from "@google/genai";
 import { missingKeys, type Config } from "./config.js";
+import { chooseSearchPath, type ChatNote } from "./context.js";
 import { answer, createGeminiModel, withFallback, type AgentEvent, type ChatModel, type FallbackInfo } from "./llm.js";
 import { plannerPrompt, writerPrompt } from "./prompts.js";
 import { webSearchFromConfig, type WebSearch } from "./search.js";
 
 // Earlier messages on the page, so follow-ups like "and Supabase?" work.
 export interface ChatTurn { role: "user" | "assistant"; text: string }
-export interface ChatInput { question: string; history?: ChatTurn[]; timezone?: string }
+// note: the "what we're talking about" note from the last answer (kept by the page for now).
+export interface ChatInput { question: string; history?: ChatTurn[]; timezone?: string; note?: ChatNote }
 export type ChatFn = (input: ChatInput) => AsyncGenerator<AgentEvent>;
 
 export function toContents(history: ChatTurn[] = []): Content[] {
@@ -24,7 +26,7 @@ export function createAgent(config: Config, log: (line: string) => void = consol
   // Built once on first use and kept, so the writer remembers a used-up daily quota between chats.
   let parts: { planner: ChatModel; writer: ChatModel; search: WebSearch } | undefined;
 
-  return async function* chat({ question, history, timezone }) {
+  return async function* chat({ question, history, timezone, note }) {
     // Checked per chat (not at start-up) so the page still opens without keys.
     const missing = missingKeys(config);
     if (missing.length) throw new Error(`Add ${missing.join(" and ")} to .env (copy .env.example to .env first).`);
@@ -39,12 +41,18 @@ export function createAgent(config: Config, log: (line: string) => void = consol
       };
     }
 
+    // Who builds the searches: code (instant) or the AI planner (backup).
+    const route = chooseSearchPath(question, note, config.searchMode);
+    log(`path: ${route.path} (${route.reason})${route.queries ? ` → ${route.queries.join(" | ")}` : ""}`);
+
     yield* answer({
       ...parts,
       plannerSystem: plannerPrompt(timezone),
       writerSystem: writerPrompt(timezone),
       question,
       history: toContents(history),
+      options: { presetQueries: route.queries, withNote: true },
+      onPlannerError: (err) => log(`planner failed (${err instanceof Error ? err.message.slice(0, 80) : err}) → searching the question as-is`),
       onTimings: (t) => log(
         `timing: plan ${t.planMs.map(ms).join("+") || "-"}, search ${t.searchMs.map(ms).join("+") || "-"}, first word ${t.firstTextMs === undefined ? "-" : ms(t.firstTextMs)}, total ${ms(t.totalMs)}`,
       ),
