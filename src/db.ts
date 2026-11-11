@@ -238,6 +238,26 @@ export class Db {
     return this.listThings(userId).filter((t) => t.name.toLowerCase() === wanted || t.aliases.some((a) => a.toLowerCase() === wanted));
   }
 
+  // Joins two things that turned out to be the same: `from`'s links, facts and names move to `into`,
+  // then `from` is removed. Both must belong to this user.
+  mergeThings(userId: number, fromId: number, intoId: number): void {
+    const from = this.getThing(userId, fromId);
+    const into = this.getThing(userId, intoId);
+    if (!from || !into || fromId === intoId) return;
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("UPDATE mentions SET thing_id = ? WHERE thing_id = ? AND user_id = ?").run(intoId, fromId, userId);
+      this.db.prepare("UPDATE facts SET thing_id = ? WHERE thing_id = ? AND user_id = ?").run(intoId, fromId, userId);
+      this.db.prepare("DELETE FROM things WHERE id = ? AND user_id = ?").run(fromId, userId);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+    for (const name of [from.name, ...from.aliases]) this.addAlias(userId, intoId, name);
+    this.fillThing(userId, intoId, { type: from.type, website: from.website });
+  }
+
   // Adds another name for a thing (e.g. "PostgreSQL" for "Postgres"). Ignores repeats.
   addAlias(userId: number, thingId: number, alias: string): void {
     const thing = this.getThing(userId, thingId);
