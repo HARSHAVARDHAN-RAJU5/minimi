@@ -40,6 +40,8 @@ Memory lives in code around the model, so web search stays the model's only tool
 - **things**: `id, user_id, name, type, aliases, website` (for example `Neon | Postgres hosting | neon.tech`).
 - **links**: `from → kind → to`, for example `chat #12 → mentions → Neon` or `Neon → is a → Postgres hosting`.
 - **facts**: `thing, field, value, source URL, checked_at, chat_id` (for example `Neon | price | $19/mo | neon.tech/pricing | 2026-11-03`). Old facts are kept, never overwritten, so we can say what changed.
+- **loops**: `id, user_id, chat_id, text, status (open/closed), opened_at, closed_at` (for example "pick a CRM from the 5 shortlisted").
+- **decisions**: `id, user_id, thing, choice, reason, decided_at, chat_id` (for example "CRM | HubSpot | cheapest for 20 seats | 2026-11-12").
 - Indexes: (user_id, date), thing name/aliases, FTS5 on messages.
 
 ### How a lookup works
@@ -57,6 +59,12 @@ Memory lives in code around the model, so web search stays the model's only tool
 ### Seeding (tests only)
 - `npm run seed` adds back-dated pretend chats (Mon CRM shortlist, Tue 3 Nov Postgres hosting) through the **same saving path** as real chats.
 - Every seeded row is labeled `seed`; `npm run seed:clear` removes them. Real use starts empty.
+
+### Extra features
+Why: minimi's app finds open loops and nudges only when it matters; these features bring the same idea to the chat agent for the same users (busy founders and team leads).
+- **Open loops:** the background step spots unfinished things and saves them as open loops. When a new chat starts, the open ones are shown ("You still haven't picked a CRM from Monday"). When the user decides, the loop is closed.
+- **"Still true?" check:** when an old fact (older than 24h) comes up in a chat, it gets re-checked with a web search. The agent only mentions it if the value changed.
+- **Decision log:** the background step saves decisions with a reason. They go into the prompt, so ruled-out options are not suggested again.
 
 Embeddings (number-vectors for meaning search) are on the "next week" list, not v1.
 
@@ -91,7 +99,7 @@ CLAUDE.md              short: commands + architecture (after code exists)
 2. Basic chat with Gemini + Google Search grounding, streaming, sources shown.
 3. Users + conversations + message storage.
 4. Date resolution + memory map (things, links, facts) + retrieval.
-5. Background rewrite of the map, chat notes and profile; seeding script.
+5. Background rewrite of the map, chat notes, profile, open loops and decisions; seeding script.
 6. Tricky-question tests.
 7. Polish UI, CLAUDE.md, then DESIGN.md from notes.md.
 
@@ -101,6 +109,7 @@ Per your instructions, I'll show you the exact text of the prompts, the `/notes`
 - `npm install && npm run dev` from a clean clone, then open `http://localhost:PORT`.
 - Seed test: a script inserts back-dated conversations (a CRM shortlist "on Monday", Postgres hosting on 2026-11-03), then asks the three example questions. Check that it finds the right past conversation, quotes the old answer, searches, and reports changes with sources.
 - Tricky tests: same name with two types, same topic on two days, a changed price, a date with no chat (must say "can't find"), two matches that disagree (must ask).
+- Features: a loop opens and later closes; a ruled-out option is not suggested again; an unchanged old fact is not mentioned.
 - Two users: user B can't see user A's memory.
 - Run `/notes` twice. `notes.md` should stay one page, with no duplicate points.
 

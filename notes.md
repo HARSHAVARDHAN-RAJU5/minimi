@@ -4,6 +4,7 @@ Source for DESIGN.md. Rewrite points in place; don't append logs. Keep it to abo
 ## Goal
 A chat agent as good as online chat apps. Web search is its only tool. It remembers past
 conversations by date and topic, so it can answer "Last Tuesday I asked about X. Has it changed?"
+Users: busy founders and team leads who juggle many jobs (the same people minimi serves).
 
 ## Rules
 - JS/TS on Node. Runs with `npm install` then `npm run dev`.
@@ -20,8 +21,9 @@ conversations by date and topic, so it can answer "Last Tuesday I asked about X.
 - Model: Gemini. Free and fast.
 - Search: Gemini's built-in Google Search grounding. Free and needs no extra key. Tavily is the fallback.
 - UI: simple web page served by the Node server.
+- Streaming: answers appear word by word, so the user never waits on a blank screen.
 - Users: multiple, each with separate memory.
-- Storage: built-in `node:sqlite`. No native build, so `npm install` stays reliable.
+- Storage: built-in `node:sqlite`, kept only on the user's computer (no cloud database, like minimi). No native build, so `npm install` stays reliable.
 - Memory is code around the model, so web search stays the only tool.
 - Memory map: things (Neon, HubSpot) + links (chat → mentions → Neon) + facts with date and source. Stored as tables in the same SQLite file.
 - Speed: ask the AI less (code reads dates and names first) and search the web less (reuse facts checked in the last day, except "has it changed?" questions).
@@ -36,6 +38,16 @@ conversations by date and topic, so it can answer "Last Tuesday I asked about X.
 - Old and new facts are both kept, each with its date.
 - Nothing found → say so, never make it up.
 - A test list of tricky questions, checked after every change.
+
+## Extra features (match minimi: remember, and nudge at the right moment)
+Why: this is minimi's assignment. Their app finds open loops, reminds at the right moment and stays quiet otherwise.
+Their users are busy founders and team leads. These features show the agent fits that product and those users.
+- Open loops: spot unfinished things ("shortlisted 5 CRMs, none picked yet"), remind in the next chat, close once done.
+  Why: minimi's core idea; busy people forget half-finished decisions.
+- "Still true?" check: re-check old answers when they come up; speak up only if something changed.
+  Why: the example questions ask "is it still correct?"; staying quiet otherwise matches minimi's "nudge only when it matters".
+- Decision log: save what was picked and why ("HubSpot, 12 Nov, price"); never re-suggest what was ruled out.
+  Why: suggesting an option you already ruled out wastes time and feels like the agent forgot.
 
 ## Considered & rejected
 - Claude / OpenAI: paid. Gemini is free.
