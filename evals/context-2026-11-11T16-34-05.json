@@ -1,0 +1,399 @@
+{
+  "date": "2026-11-11T16:39:54.363Z",
+  "model": "gemini-3.5-flash-lite",
+  "rows": [
+    {
+      "case": "neon→supabase",
+      "first": "What does Neon cost?",
+      "second": "and Supabase?",
+      "turn1Searches": [
+        "Neon Postgres pricing 2026"
+      ],
+      "writerNoteValid": true,
+      "writerNote": {
+        "things": [
+          "Neon"
+        ],
+        "topic": "pricing"
+      },
+      "backupNote": {
+        "things": [
+          "Neon",
+          "Postgres"
+        ],
+        "topic": "pricing"
+      },
+      "noteUsed": "writer",
+      "noteLeakedToAnswer": false,
+      "code": {
+        "queries": [
+          "Supabase pricing 2026"
+        ],
+        "reason": "names in question",
+        "ms": 2.013,
+        "coverage": 1
+      },
+      "ai": {
+        "queries": [
+          "Supabase pricing plans 2026"
+        ],
+        "ms": 958,
+        "coverage": 1
+      }
+    },
+    {
+      "case": "crm→salesforce",
+      "first": "Compare HubSpot and Pipedrive pricing for 20 users",
+      "second": "what about Salesforce?",
+      "turn1Searches": [
+        "HubSpot pricing plans 2026",
+        "Pipedrive pricing plans 2026"
+      ],
+      "writerNoteValid": true,
+      "writerNote": {
+        "things": [
+          "HubSpot",
+          "Pipedrive"
+        ],
+        "topic": "pricing"
+      },
+      "backupNote": {
+        "things": [
+          "HubSpot",
+          "Pipedrive"
+        ],
+        "topic": "pricing"
+      },
+      "noteUsed": "writer",
+      "noteLeakedToAnswer": false,
+      "code": {
+        "queries": [
+          "Salesforce pricing 2026"
+        ],
+        "reason": "names in question",
+        "ms": 0.415,
+        "coverage": 1
+      },
+      "ai": {
+        "queries": [
+          "Salesforce pricing per user 2026"
+        ],
+        "ms": 14579,
+        "coverage": 1
+      }
+    },
+    {
+      "case": "topic-change",
+      "first": "What does Neon cost?",
+      "second": "Who is Neon's CEO?",
+      "turn1Searches": [
+        "Neon Postgres pricing 2026"
+      ],
+      "writerNoteValid": true,
+      "writerNote": {
+        "things": [
+          "Neon"
+        ],
+        "topic": "pricing"
+      },
+      "backupNote": {
+        "things": [
+          "Neon",
+          "Postgres"
+        ],
+        "topic": "pricing"
+      },
+      "noteUsed": "writer",
+      "noteLeakedToAnswer": false,
+      "code": {
+        "queries": [
+          "Neon CEO"
+        ],
+        "reason": "names in question",
+        "ms": 0.438,
+        "coverage": 1
+      },
+      "ai": {
+        "queries": [
+          "Neon Postgres CEO 2026"
+        ],
+        "ms": 2137,
+        "coverage": 1
+      }
+    },
+    {
+      "case": "linear-sso",
+      "first": "What's Linear's Business plan price?",
+      "second": "does it include SSO?",
+      "turn1Searches": [
+        "Linear pricing Business plan cost"
+      ],
+      "writerNoteValid": true,
+      "writerNote": {
+        "things": [
+          "Linear"
+        ],
+        "topic": "pricing"
+      },
+      "backupNote": {
+        "things": [
+          "Business"
+        ],
+        "topic": "pricing"
+      },
+      "noteUsed": "writer",
+      "noteLeakedToAnswer": false,
+      "code": {
+        "queries": [
+          "Linear include SSO"
+        ],
+        "reason": "names from note",
+        "ms": 0.8,
+        "coverage": 1
+      },
+      "ai": {
+        "queries": [
+          "Linear pricing Business plan SSO SAML"
+        ],
+        "ms": 2462,
+        "coverage": 1
+      }
+    },
+    {
+      "case": "vercel→netlify",
+      "first": "Did Vercel ship anything big this week?",
+      "second": "and Netlify?",
+      "turn1Searches": [
+        "Vercel ship anything big this week November 2026"
+      ],
+      "writerNoteValid": true,
+      "writerNote": {
+        "things": [
+          "Vercel"
+        ],
+        "topic": "new features"
+      },
+      "backupNote": {
+        "things": [
+          "Vercel",
+          "November"
+        ],
+        "topic": "new features"
+      },
+      "noteUsed": "writer",
+      "noteLeakedToAnswer": false,
+      "code": {
+        "queries": [
+          "Netlify new features 2026"
+        ],
+        "reason": "names in question",
+        "ms": 0.467,
+        "coverage": 1
+      },
+      "ai": {
+        "queries": [
+          "Netlify ship log updates November 2026"
+        ],
+        "ms": 1369,
+        "coverage": 1
+      }
+    },
+    {
+      "case": "stripe→razorpay",
+      "first": "Is Stripe's standard card fee in India still 2%?",
+      "second": "what about Razorpay?",
+      "turn1Searches": [
+        "Stripe India standard card fee pricing 2026"
+      ],
+      "writerNoteValid": true,
+      "writerNote": {
+        "things": [
+          "Stripe India"
+        ],
+        "topic": "pricing"
+      },
+      "backupNote": {
+        "things": [
+          "Stripe",
+          "India"
+        ],
+        "topic": "pricing"
+      },
+      "noteUsed": "writer",
+      "noteLeakedToAnswer": false,
+      "code": {
+        "queries": [
+          "Razorpay pricing 2026"
+        ],
+        "reason": "names in question",
+        "ms": 0.209,
+        "coverage": 1
+      },
+      "ai": {
+        "queries": [
+          "Razorpay standard domestic credit debit card transaction fee India 2026"
+        ],
+        "ms": 2340,
+        "coverage": 1
+      }
+    },
+    {
+      "case": "crm-which-one",
+      "first": "Compare HubSpot, Pipedrive and Salesforce for a small sales team",
+      "second": "Which one is cheapest for 20 users?",
+      "turn1Searches": [
+        "HubSpot Sales Hub pricing small team 2026",
+        "Pipedrive pricing 2026 plans small team",
+        "Salesforce pricing small business editions 2026"
+      ],
+      "writerNoteValid": true,
+      "writerNote": {
+        "things": [
+          "Salesforce",
+          "Pipedrive",
+          "HubSpot"
+        ],
+        "topic": "pricing"
+      },
+      "backupNote": {
+        "things": [
+          "HubSpot",
+          "Pipedrive",
+          "Salesforce",
+          "Sales Hub"
+        ],
+        "topic": "pricing"
+      },
+      "noteUsed": "writer",
+      "noteLeakedToAnswer": false,
+      "code": {
+        "queries": [
+          "Salesforce cheapest 20 users 2026",
+          "Pipedrive cheapest 20 users 2026",
+          "HubSpot cheapest 20 users 2026"
+        ],
+        "reason": "names from note",
+        "ms": 0.212,
+        "coverage": 1
+      },
+      "ai": {
+        "queries": [
+          "Pipedrive pricing per user monthly 2026",
+          "HubSpot Sales Hub pricing per seat 2026",
+          "Salesforce Starter Suite Pro Suite pricing 2026"
+        ],
+        "ms": 1228,
+        "coverage": 1
+      }
+    },
+    {
+      "case": "it-cheaper",
+      "first": "What does Supabase Pro cost?",
+      "second": "is it cheaper than Neon?",
+      "turn1Searches": [
+        "Supabase Pro plan cost pricing 2026"
+      ],
+      "writerNoteValid": true,
+      "writerNote": {
+        "things": [
+          "Supabase Pro"
+        ],
+        "topic": "pricing"
+      },
+      "backupNote": {
+        "things": [
+          "Supabase Pro"
+        ],
+        "topic": "pricing"
+      },
+      "noteUsed": "writer",
+      "noteLeakedToAnswer": false,
+      "code": {
+        "queries": [
+          "Supabase Pro cheaper pricing 2026",
+          "Neon cheaper pricing 2026"
+        ],
+        "reason": "names in question + note",
+        "ms": 0.488,
+        "coverage": 1
+      },
+      "ai": {
+        "queries": [
+          "Neon Postgres pricing plans 2026"
+        ],
+        "ms": 929,
+        "coverage": 0.6666666666666666
+      }
+    },
+    {
+      "case": "lowercase",
+      "first": "what does supabase cost",
+      "second": "and railway?",
+      "turn1Searches": [
+        "Supabase pricing plans 2026"
+      ],
+      "writerNoteValid": true,
+      "writerNote": {
+        "things": [
+          "Supabase"
+        ],
+        "topic": "pricing"
+      },
+      "noteUsed": "writer",
+      "noteLeakedToAnswer": false,
+      "code": {
+        "queries": [
+          "railway pricing 2026"
+        ],
+        "reason": "names in question",
+        "ms": 0.22,
+        "coverage": 1
+      },
+      "ai": {
+        "queries": [
+          "railway pricing plans 2026"
+        ],
+        "ms": 843,
+        "coverage": 1
+      }
+    },
+    {
+      "case": "nextjs→remix",
+      "first": "What's new in Next.js 16?",
+      "second": "and in Remix?",
+      "turn1Searches": [
+        "Next.js 16 release features what is new 2025 2026"
+      ],
+      "writerNoteValid": true,
+      "writerNote": {
+        "things": [
+          "Next.js 16"
+        ],
+        "topic": "new features"
+      },
+      "backupNote": {
+        "things": [
+          "Next.js"
+        ],
+        "topic": "new features"
+      },
+      "noteUsed": "writer",
+      "noteLeakedToAnswer": false,
+      "code": {
+        "queries": [
+          "Remix new features 2026"
+        ],
+        "reason": "names in question",
+        "ms": 0.245,
+        "coverage": 1
+      },
+      "ai": {
+        "queries": [
+          "Remix Vite React Router v7 status"
+        ],
+        "ms": 1054,
+        "coverage": 0.5
+      }
+    }
+  ]
+}
