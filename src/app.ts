@@ -2,6 +2,8 @@ import express, { type Request, type Response } from "express";
 import { fileURLToPath } from "node:url";
 import type { ChatFn, ChatInput, ChatTurn } from "./agent.js";
 import { parseNote } from "./context.js";
+import type { Db, User } from "./db.js";
+import { checkName, findOrCreateUser, requireUser } from "./users.js";
 
 const publicDir = fileURLToPath(new URL("../public", import.meta.url));
 // Browser copies of two small libraries the page uses (installed by npm install, no CDN needed).
@@ -13,17 +15,36 @@ const vendorFiles: Record<string, string> = {
 const MAX_QUESTION_CHARS = 4000;
 const MAX_HISTORY_TURNS = 20;
 
-export interface AppDeps { chat?: ChatFn }
+export interface AppDeps { chat?: ChatFn; db?: Db }
 
 // Builds the web app without starting it, so tests can run it on any free port
-// and plug in a fake chat.
-export function createApp({ chat }: AppDeps = {}) {
+// and plug in a fake chat and a temporary database.
+export function createApp({ chat, db }: AppDeps = {}) {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok" });
   });
+
+  if (db) {
+    // "Who are you?": find or create the user by name.
+    app.post("/api/users", (req, res) => {
+      const checked = checkName(req.body?.name);
+      if ("error" in checked) {
+        res.status(400).json({ error: checked.error });
+        return;
+      }
+      const { user, created } = findOrCreateUser(db, checked.name);
+      res.status(created ? 201 : 200).json({ user: { id: user.id, name: user.name } });
+    });
+
+    // The page checks its remembered user is still valid.
+    app.get("/api/me", requireUser(db), (_req, res) => {
+      const user = res.locals.user as User;
+      res.json({ user: { id: user.id, name: user.name } });
+    });
+  }
 
   app.post("/api/chat", async (req: Request, res: Response) => {
     const input = parseChatInput(req.body);
