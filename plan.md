@@ -94,14 +94,21 @@ CLAUDE.md              short: commands + architecture (after code exists)
 - The agent's memory uses the same "rewrite, don't pile up" rule, which keeps the design consistent.
 - At the end, DESIGN.md is drafted from `notes.md`.
 
-## Build order
-1. Scaffold: package.json, TypeScript, Express, `.env.example`, empty UI, `/notes` skill + `notes.md`.
-2. Basic chat with Gemini + Google Search grounding, streaming, sources shown.
-3. Users + conversations + message storage.
-4. Date resolution + memory map (things, links, facts) + retrieval.
-5. Background rewrite of the map, chat notes, profile, open loops and decisions; seeding script.
-6. Tricky-question tests.
-7. Polish UI, CLAUDE.md, then DESIGN.md from notes.md.
+## Build phases
+How we work: each phase = what + why + small steps. After every step: test, then commit. After every phase: `/notes`.
+Tests: Vitest. Quick tests (`npm test`, fake Gemini) in every phase; live tests (`npm run test:live`, real Gemini) now and then.
+
+- **Phase 0 – Setup:** empty project, Vitest, `npm run dev` shows a blank page.
+  1. `package.json`, `tsconfig.json`, TypeScript + tsx + Vitest, one example test.
+  2. `.env.example` + `src/config.ts` (clear message if the Gemini key is missing).
+  3. Express server + blank page + `/api/health`.
+- **Phase 1 – Basic chat:** Gemini + web search, streaming, source links.
+- **Phase 2 – Saving chats:** users, chat list, messages saved with dates.
+- **Phase 3 – Memory map:** things, links and facts saved after each reply.
+- **Phase 4 – Remembering:** dates, finding the right old chat, "still true?" answers.
+- **Phase 5 – Extra features:** open loops, "still true?" check, decision log.
+- **Phase 6 – Big check:** seed data, the 3 example questions, the tricky list, two users kept separate.
+- **Phase 7 – Finish:** polish, CLAUDE.md, README, DESIGN.md.
 
 Per your instructions, I'll show you the exact text of the prompts, the `/notes` skill and CLAUDE.md before saving them. Commits won't have a co-author line.
 
