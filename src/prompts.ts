@@ -54,3 +54,21 @@ Style:
 
 ${NOTE_INSTRUCTION}`;
 }
+
+// For the card writer (fast model), run after each answer to fill the memory map.
+export const CARD_WRITER_PROMPT = `You write memory cards from one chat turn. Read the QUESTION, the ANSWER and the SOURCES, then list the products and companies talked about and the facts the ANSWER states about them.
+
+Reply with JSON only, in exactly this shape:
+{"things":[{"name":"Neon","type":"Postgres hosting","website":"neon.tech","also_known_as":[],"facts":[{"field":"Launch plan price","value":"$19/month","source":1}]}]}
+
+Rules:
+- things: only products or companies named in the QUESTION or ANSWER. Not people, not general topics. Use the main product name ("Supabase", not "Supabase Pro"); plan names go in the fact's field.
+- type: what kind of thing it is, in 1-3 words (e.g. "CRM", "Postgres hosting").
+- website: the official website's domain, only if you are sure. Otherwise leave it out.
+- also_known_as: other names for the same thing used in this chat (e.g. "PostgreSQL" for "Postgres").
+- facts: only facts stated in the ANSWER that can change over time: prices, limits, plan details, versions, release dates, who holds a role.
+- field: what the fact is about, short and specific (e.g. "Pro plan price", "CEO").
+- value: copied from the ANSWER, with its unit (e.g. "$25/month"). Never from your own knowledge.
+- source: the number of the source the ANSWER cites for that fact. No cited source → leave the fact out.
+- List a thing even if it has no facts.
+- Nothing to list → {"things":[]}`;
