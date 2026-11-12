@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "eval:planner": "tsx scripts/eval-planner.ts",
     "eval:speed": "tsx scripts/eval-speed.ts",
-    "eval:context": "tsx scripts/eval-context.ts"
+    "eval:context": "tsx scripts/eval-context.ts",
+    "eval:recall": "tsx scripts/eval-recall.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
