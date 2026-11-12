@@ -1,6 +1,6 @@
 # Plan: "minimi" — chat agent with web search + long-term memory
 
-> **Status:** planning done, Phases 0–4 done. Add, cut or change anything as we go.
+> **Status:** planning done, Phases 0–5 done. Add, cut or change anything as we go.
 
 ## Context
 Goal: a chat agent that feels as good as online chat apps, with **web search as its only tool**, and that **remembers past conversations by date and topic**, so it can answer:
@@ -40,8 +40,8 @@ Memory lives in code around the model, so web search stays the model's only tool
 - **things**: `id, user_id, name, type, aliases, website` (for example `Neon | Postgres hosting | neon.tech`).
 - **links**: `from → kind → to`, for example `chat #12 → mentions → Neon` or `Neon → is a → Postgres hosting`.
 - **facts**: `thing, field, value, source URL, checked_at, chat_id` (for example `Neon | price | $19/mo | neon.tech/pricing | 2026-11-03`). Old facts are kept, never overwritten, so we can say what changed.
-- **loops**: `id, user_id, chat_id, text, status (open/closed), opened_at, closed_at` (for example "pick a CRM from the 5 shortlisted").
-- **decisions**: `id, user_id, thing, choice, reason, decided_at, chat_id` (for example "CRM | HubSpot | cheapest for 20 seats | 2026-11-12").
+- **loops**: `id, user_id, chat_id, text, things, status, choice, reason, opened_at, closed_at, closed_in_chat_id` (built; e.g. "Pick one: HubSpot, Pipedrive, …").
+- **decisions**: no separate table; a loop closed with a choice is a decision.
 - Indexes: (user_id, date), thing name/aliases, FTS5 on messages.
 
 ### How a lookup works
@@ -85,6 +85,9 @@ src/dates.ts           date words → date ranges in the user's time zone (done;
 src/things.ts          same-thing-or-not rules, join later (done)
 src/extract.ts         card writer: ask → check → save (done)
 src/recall.ts          find the old chat, memory searches, memory block (done)
+src/loops.ts           open loops: open/close rules (done)
+src/stilltrue.ts       old facts for named things (done)
+src/decisions.ts       decision log (done)
 src/memory/consolidate.ts  rewrite map, chat notes + user profile (join only when sure)
 scripts/seed.ts        seed / clear pretend chats (label "seed") (done)
 scripts/eval-recall.ts different wordings of the 3 questions (done)
@@ -118,7 +121,7 @@ Tests: Vitest. Quick tests (`npm test`, fake Gemini) in every phase; live tests 
 - **Phase 2 – Saving chats:** ✔ done. Users, chat list, messages saved with dates; user-tested in the browser.
 - **Phase 3 – Memory map:** ✔ done. Things, links and facts saved after each reply; "What I remember" page.
 - **Phase 4 – Remembering:** ✔ done. Dates, recall (date filter + memory map + search index), then vs now, seed script; tested on the 3 assignment questions and 60 AI-written wordings.
-- **Phase 5 – Extra features:** open loops, "still true?" check, decision log.
+- **Phase 5 – Extra features:** ✔ done. Open loops (code-only), "still true?" check, decision log; each checked in the browser with seeded chats.
 - **Phase 6 – Big check:** seed data, the 3 example questions, the tricky list, two users kept separate.
 - **Phase 7 – Finish:** polish, CLAUDE.md, README, DESIGN.md.
 

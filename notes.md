@@ -5,7 +5,7 @@ Source for DESIGN.md. Rewrite points in place; don't append logs. Keep it to abo
 A chat agent as good as online chat apps. Web search is its only tool. It remembers past
 conversations by date and topic, so it can answer "Last Tuesday I asked about X. Has it changed?"
 Users: busy founders and team leads who juggle many jobs (the same people minimi serves).
-Status: Phase 4 (remembering) done: the 3 assignment questions get real answers (find the old chat by date and topic, check each remembered thing now, compare then vs now) in 1.5–4 s.
+Status: Phase 5 (extra features) done: open loops, "still true?" check, decision log.
 
 ## Rules
 - JS/TS on Node. Runs with `npm install` then `npm run dev`.
@@ -52,11 +52,11 @@ Status: Phase 4 (remembering) done: the 3 assignment questions get real answers 
 ## Extra features (match minimi: remember, and nudge at the right moment)
 Why: this is minimi's assignment. Their app finds open loops, reminds at the right moment and stays quiet otherwise.
 Their users are busy founders and team leads. These features show the agent fits that product and those users.
-- Open loops: spot unfinished things ("shortlisted 5 CRMs, none picked yet"), remind in the next chat, close once done.
+- Open loops: code (no AI) opens one when the user compares / shortlists / chooses between 2+ things; closes it on "we picked / went with / signed up for X" (in any chat) or the Done button. Shown only on the New chat screen ("Still open" + Check now / Done). Unusual wording ("Pipedrive it is") isn't caught; Done is the backup.
   Why: minimi's core idea; busy people forget half-finished decisions.
-- "Still true?" check: re-check old answers when they come up; speak up only if something changed.
+- "Still true?" check: a normal question naming a remembered thing gets its old facts (older than 1 day, and about what's asked: prices only for price questions). The writer adds one line only if a value changed.
   Why: the example questions ask "is it still correct?"; staying quiet otherwise matches minimi's "nudge only when it matters".
-- Decision log: save what was picked and why ("HubSpot, 12 Nov, price"); never re-suggest what was ruled out.
+- Decision log: a loop closed with a choice is a decision (choice, other options, date, and the reason after "because"). Questions about those options or that kind get it, so the writer builds on the choice and doesn't push ruled-out options. Shown on the What I remember page.
   Why: suggesting an option you already ruled out wastes time and feels like the agent forgot.
 
 ## Considered & rejected
@@ -76,6 +76,7 @@ Their users are busy founders and team leads. These features show the agent fits
 - Fact names vary between answers ("Pro plan price" vs "Pro plan base price"). Phase 4 must match close names, or the card writer prompt needs fixed names.
 - Re-run speed tests with 3.8 writing (normal vs less thinking), 3 runs each, at a quiet time.
 - Re-run the 3 questions with 3.8 writing. With the fast model, one answer contradicted itself ("No pricing has changed" + a "Changed" row) and one wrote "[THEN]" on old values.
+- With the fast model writing, the still-true line once appeared when nothing could be confirmed (now prevented in code for prices). Re-check with 3.8.
 - Broader memory test: different memory questions (not rewordings) over a richer history. Expected gaps: "this month"/"in October", "my last question", facts about the user (team size, budget), decisions, synonyms.
 - Fresh test of code-built searches on 10 new chats. First test: code 10/10 vs AI planner 8/10, but the code was fixed against those same questions.
 
@@ -99,5 +100,7 @@ Their users are busy founders and team leads. These features show the agent fits
 - The fact check first let a made-up "$2" through because the answer had the citation mark "[2]"; citation marks are now ignored.
 - 3.8 refused in under 1 s on a plain call but hung ~27 s on the streaming call the app uses. Measure the exact path the app uses.
 - Recall eval: 30 AI-written wordings went 21/30 → 30/30 after two fixes; on a fresh unseen set 29/30. Only "3/11" (unclear day/month order) still fails. Always re-test on an unseen set.
+- Loops, still-true and decisions need no extra AI call: plain code picks what to pass, the writer only phrases it.
+- At busy times the fast model took 7–9 s to the first word while search took under 1 s; speed depends mostly on the writer.
 - Leftover everyday words ("hey", "question", "response") were being treated as the topic and hid the right chat.
 - With the fast model writing, the first version of answer 3 mixed today's value into the THEN value and called a real change "Unchanged"; a firmer prompt ("copy THEN exactly; any difference = Changed") fixed it.
