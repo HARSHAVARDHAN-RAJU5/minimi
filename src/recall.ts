@@ -222,6 +222,9 @@ const shortDay = (iso: string, timezone?: string) => {
   catch { return new Date(iso).toDateString(); }
 };
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)} …(cut)` : text);
+// Old answers had their own [1], [2] sources. Those numbers mean nothing now (today's [1] is a
+// different page), so they are removed before the writer sees the old answer.
+const dropOldCitations = (text: string) => text.replace(/\s?\[(?:n:)?\d+(?:\s*,\s*(?:n:)?\d+)*\]/g, "");
 
 // The memory block for the writer: data only (dates, the real saved messages, the facts saved then).
 // How to use it is in the writer's prompt.
@@ -238,7 +241,7 @@ export function memoryBlock(rec: Recall, timezone?: string): string {
   for (const c of rec.chats) {
     lines.push("", `Chat "${c.chat.title}", ${c.when}:`);
     for (const m of c.messages) {
-      lines.push(m.role === "user" ? `  User asked: ${clip(m.text, 500)}` : `  You answered${m.stopped ? " (cut off)" : ""}: ${clip(m.text.replace(/\n{2,}/g, "\n"), 1500)}`);
+      lines.push(m.role === "user" ? `  User asked: ${clip(m.text, 500)}` : `  You answered${m.stopped ? " (cut off)" : ""}: ${clip(dropOldCitations(m.text).replace(/\n{2,}/g, "\n"), 1500)}`);
     }
     if (c.facts.length) {
       lines.push("  Facts saved then:");

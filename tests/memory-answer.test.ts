@@ -91,6 +91,12 @@ describe("memoryBlock: THEN, as data", () => {
     expect(block).toContain("Things talked about: HubSpot, Pipedrive, Salesforce, Zoho CRM, Close");
   });
 
+  it("removes the old answer's citation numbers (they pointed to old sources, not today's)", () => {
+    const block = memoryBlock(rec("What did I ask you on 3 November?"), timezone);
+    expect(block).toContain("You answered: Neon Launch is $19/month; Supabase Pro is $25/month.");
+    expect(block).not.toMatch(/You answered:.*\[\d/);
+  });
+
   it("says when the chat was found a week earlier, when the topic didn't match, and when nothing was found", () => {
     expect(memoryBlock(rec("Last Tuesday I asked about Supabase pricing"))).toContain("NOTE: nothing matched on Tue 10 Nov; these chats are from Tue 3 Nov (one week earlier).");
     expect(memoryBlock(rec("Last Tuesday I asked about Kubernetes"))).toContain("NOTE: no chat on Tue 10 Nov was about kubernetes. These are all the chats from that day.");
