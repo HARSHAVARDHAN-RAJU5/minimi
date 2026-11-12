@@ -174,6 +174,7 @@ function ordinalWordsToNumbers(q: string): string {
   // Not when a noun follows: "the first time", "the second one", "the third question".
   const notNoun = "(?!\\s+(?:time|times|one|ones|thing|things|step|place|option|options|question|answer|chat|try|attempt|plan|tool|item)\\b)";
   return q
+    .replace(new RegExp(`(\\b${MONTH_RE} )${word}(\\b)`, "g"), (all, before: string, _month: string, tens: string | undefined, unit: string, after: string) => swap(all, before, tens, unit, after)) // "november third"
     .replace(new RegExp(`(\\bthe )${word}${notNoun}(\\b)`, "g"), swap)
     .replace(new RegExp(`(\\b)${word}( of\\b)`, "g"), swap);
 }

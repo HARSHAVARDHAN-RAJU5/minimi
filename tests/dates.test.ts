@@ -78,6 +78,8 @@ describe("calendar dates", () => {
   it("numbers written as words: 'the third of November', 'the twenty-first'", () => {
     expect(label("what I asked you on the third of November")).toBe("Tue 3 Nov");
     expect(label("third of nov")).toBe("Tue 3 Nov");
+    expect(label("what i asked on november third")).toBe("Tue 3 Nov");
+    expect(label("on Oct twenty-first")).toBe("Wed 21 Oct");
     expect(label("on the ninth")).toBe("Mon 9 Nov");
     expect(label("on the twenty-first of October")).toBe("Wed 21 Oct");
     expect(r("the first time I asked")).toBeUndefined(); // a noun follows: not a date
