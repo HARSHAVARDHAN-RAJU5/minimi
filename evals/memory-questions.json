@@ -1,0 +1,56 @@
+{
+  "createdAt": "2026-11-12T04:22:14.849Z",
+  "model": "gemini-3.5-flash-lite",
+  "sets": {
+    "date only": [
+      "What did I ask on November 5th?",
+      "Can you remind me what we discussed on November 5?",
+      "What was my question on the 5th of November?"
+    ],
+    "name, no date": [
+      "Is Vercel Pro still that price per member?",
+      "Did Vercel change its per-member cost?",
+      "Is the Vercel Pro pricing you mentioned still accurate?"
+    ],
+    "kind + relative date": [
+      "What was that cheap database hosting options we talked about about 9 days ago?",
+      "Can you pull up the database hosting options we discussed last Tuesday?",
+      "What was the cheapest managed Postgres we looked at last week?"
+    ],
+    "this month / in October": [
+      "What did we discuss about Stripe's India fees last month?",
+      "Can you remind me of the Stripe card fees we talked about in October?",
+      "What were those details about Stripe's pricing in India from last month?"
+    ],
+    "my last question": [
+      "What did I ask you about most recently?",
+      "Can you remind me of my last question?",
+      "What was the very last thing I asked you?"
+    ],
+    "facts about me": [
+      "What was our tooling budget again?",
+      "Remind me how much we allocated for tooling per month.",
+      "Did I mention a specific monthly budget for tooling?"
+    ],
+    "what did we decide": [
+      "Which CRM did we end up going with?",
+      "What tool did we decide on for sales?",
+      "Which software did we pick in the end?"
+    ],
+    "still correct?": [
+      "Are Stripe's India card fees still the same?",
+      "Did Stripe change their card fees in India since we last talked?",
+      "Is what you told me about Stripe's fees in India still correct?"
+    ],
+    "synonyms": [
+      "What did we look at for sales software on Monday?",
+      "Can you pull up that CRM shortlist from Monday again?",
+      "What customer tools did you recommend this past Monday?"
+    ],
+    "never discussed": [
+      "Did we decide on a Figma plan last Thursday?",
+      "What did we conclude about Kubernetes pricing when we talked about it last week?",
+      "Did we ever finish setting up those Datadog alerts we discussed a couple of weeks ago?"
+    ]
+  }
+}
