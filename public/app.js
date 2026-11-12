@@ -438,7 +438,9 @@ async function ask(question) {
       } else if (event === "recall") {
         // Memory question: which old chat(s) the answer is based on.
         const li = el("li", "memory");
-        if (data.found) {
+        if (data.found && !data.chats.length) {
+          li.textContent = data.note || "Found it in memory";
+        } else if (data.found) {
           li.append(document.createTextNode(`Found your chat${data.chats.length > 1 ? "s" : ""} from ${data.label ?? "earlier"}: `));
           data.chats.forEach((c, i) => {
             if (i) li.append(document.createTextNode(", "));

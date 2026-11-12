@@ -99,16 +99,24 @@ function chatsOnTopic(db: Db, userId: number, range: { from?: string; to?: strin
   return scores;
 }
 
-export interface RecallOptions { now?: Date; timezone?: string; beforeMessageId?: number; maxChats?: number }
+export interface RecallOptions {
+  now?: Date; timezone?: string; beforeMessageId?: number; maxChats?: number;
+  // From the listener (instead of reading the question with word lists):
+  force?: boolean; // treat it as a memory question
+  range?: DateRange | null; // the days to look at (null = no date)
+  topicText?: string; // what the earlier chat was about, e.g. "Postgres hosting"
+  names?: string[]; // products the question is about
+}
 
 // Finds the old chat(s) a memory question is about. Undefined when it is not a memory question.
 export function recall(db: Db, userId: number, question: string, opts: RecallOptions = {}): Recall | undefined {
   const { now = new Date(), timezone, beforeMessageId, maxChats = 3 } = opts;
-  if (!isMemoryQuestion(question, now, timezone)) return undefined;
+  if (!opts.force && !isMemoryQuestion(question, now, timezone)) return undefined;
 
-  const range = findDateRange(question, now, timezone);
-  const topic = topicWords(question);
-  const matchedThings = thingsInQuestion(db, userId, question);
+  const range = opts.range !== undefined ? opts.range ?? undefined : findDateRange(question, now, timezone);
+  const topicSource = opts.topicText ?? question;
+  const topic = topicWords(topicSource);
+  const matchedThings = thingsInQuestion(db, userId, `${(opts.names ?? []).join(" ")} ${topicSource}`);
   const hasTopic = topic.length > 0 || matchedThings.length > 0;
 
   // Chats in a date range: on the topic if there is one, otherwise all of them.
@@ -118,7 +126,17 @@ export function recall(db: Db, userId: number, question: string, opts: RecallOpt
     const chatIds = [...new Set(inRange.map((m) => m.chatId))];
     if (!hasTopic) return { picked: chatIds.map((id) => ({ id, score: 1 })), inRange, chatIds };
     const scores = chatsOnTopic(db, userId, span, topic, matchedThings);
-    const picked = [...scores].filter(([id]) => chatIds.includes(id)).map(([id, score]) => ({ id, score }));
+    let picked = [...scores].filter(([id]) => chatIds.includes(id)).map(([id, score]) => ({ id, score }));
+    // Products named (by the listener) must really appear in the chat: a shared everyday word
+    // ("Figma plan" vs "Linear's Business plan") is not enough.
+    const names = (opts.names ?? []).filter(Boolean);
+    if (names.length) {
+      const named = new Set([
+        ...db.searchMessages(userId, names, span).map((m) => m.chatId),
+        ...thingsInQuestion(db, userId, names.join(" ")).flatMap((t) => db.listMentions(userId, t.id, span).map((m) => m.chatId)),
+      ]);
+      picked = picked.filter((p) => named.has(p.id));
+    }
     return { picked, inRange, chatIds };
   };
 
@@ -267,4 +285,39 @@ export function recallSummary(rec: Recall): { found: boolean; label?: string; ch
     chats: rec.chats.map((c) => ({ id: c.chat.id, title: c.chat.title, when: c.when })),
     ...(note ? { note } : {}),
   };
+}
+
+// --- Memory actions the listener can ask for -----------------------------------------------------
+
+function asRecall(db: Db, userId: number, picked: Array<{ chatId: number; messages: Message[] }>, reason: string, timezone?: string): Recall {
+  const chats: RecalledChat[] = picked.map(({ chatId, messages }) => {
+    const chat = db.getChat(userId, chatId)!;
+    const things = db.listThingsInChat(userId, chatId);
+    const names = new Map(things.map((t) => [t.id, t.name]));
+    const facts = db.listFactsInChat(userId, chatId).map((f) => ({ ...f, thing: names.get(f.thingId) ?? "" }));
+    return { chat, when: timeLabel(messages[0]?.createdAt ?? chat.createdAt, timezone), messages, things, facts };
+  });
+  return {
+    status: chats.length ? "found" : "none", usedWeekEarlier: false, topic: [], matchedThings: [], chats,
+    topicMatched: chats.length > 0, hasTopic: false, reason,
+  };
+}
+
+// "What was my last question?": the user's message just before this one (any chat) and its answer.
+export function recallLastQuestion(db: Db, userId: number, opts: { beforeMessageId?: number; timezone?: string } = {}): Recall {
+  const mine = db.listMessagesInRange(userId, { beforeId: opts.beforeMessageId }).filter((m) => m.role === "user");
+  const last = mine.at(-1);
+  if (!last) return asRecall(db, userId, [], "no earlier question", opts.timezone);
+  const chatMessages = db.listMessages(userId, last.chatId);
+  const i = chatMessages.findIndex((m) => m.id === last.id);
+  const answer = chatMessages[i + 1]?.role === "assistant" ? [chatMessages[i + 1]] : [];
+  return asRecall(db, userId, [{ chatId: last.chatId, messages: [last, ...answer] }], "found your last question", opts.timezone);
+}
+
+// "What was our budget?": the user's own earlier messages about that topic (search index), best first.
+export function recallUserFact(db: Db, userId: number, topicText: string, opts: { beforeMessageId?: number; timezone?: string; max?: number } = {}): Recall {
+  const words = topicWords(topicText);
+  const hits = db.searchMessages(userId, words, { beforeId: opts.beforeMessageId }).filter((m) => m.role === "user").slice(0, opts.max ?? 3);
+  const reason = hits.length ? `found ${hits.length} earlier message${hits.length > 1 ? "s" : ""} about ${words.join(", ")}` : `nothing you said about ${words.join(", ") || "that"}`;
+  return asRecall(db, userId, hits.map((m) => ({ chatId: m.chatId, messages: [m] })), reason, opts.timezone);
 }
