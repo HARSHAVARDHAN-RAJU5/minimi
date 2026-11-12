@@ -1,6 +1,6 @@
 # Plan: "minimi" — chat agent with web search + long-term memory
 
-> **Status:** planning done, Phases 0–5 done. Add, cut or change anything as we go.
+> **Status:** planning done, Phases 0–6 done. Add, cut or change anything as we go.
 
 ## Context
 Goal: a chat agent that feels as good as online chat apps, with **web search as its only tool**, and that **remembers past conversations by date and topic**, so it can answer:
@@ -13,7 +13,7 @@ Choices made: **Gemini** (free tier), **simple web UI**, **multiple users**, fre
 
 ## Main idea (plain words)
 When you send a message:
-1. Code works out the real dates ("last Tuesday" → Tue 10 Nov) and spots memory questions (no AI call).
+1. Easy questions skip the AI. Otherwise the fast AI "listener" fills a short form (type, products, time words, what's looked for, searches). Code checks it and turns time words into real dates ("last Tuesday" → Tue 10 Nov). Broken or slow form → the old code rules.
 2. Code uses the **memory map** to find matching chats, then reads the real saved messages and facts (what you asked, what we answered, prices with sources, as-of date).
 3. Gemini answers, using the web_search tool (Exa, Tavily backup) when needed, comparing "what we said then" with "what's true now", and cites its sources.
 4. Search results are saved while answering. After the reply, one background AI call **rewrites** (not appends) the map, the chat summary and your profile.
@@ -25,7 +25,7 @@ Memory lives in code around the model, so web search stays the model's only tool
 - **Search:** one tool, `web_search`, given to Gemini. Code runs Exa (main: 2,500 free/month, no card) and switches to Tavily automatically if Exa fails or runs out. Keys: `EXA_API_KEY`, `TAVILY_API_KEY` (optional).
 - **Server:** Node 24 + TypeScript + Express, run with `tsx watch`. Replies stream to the browser over SSE (Server-Sent Events, a one-way live stream from server to browser).
 - **Storage:** built-in `node:sqlite` (no native build step, so `npm install` stays reliable on Windows). `engines: node >=22.13`.
-- **Dates:** `chrono-node` turns "Monday", "3 November" and "last Tuesday" into real dates in the user's timezone. This is plain code, not the model guessing.
+- **Dates:** own code (no library) turns "Monday", "3 November" and "last Tuesday" into real dates in the user's time zone. This is plain code, not the model guessing.
 - **UI:** one plain HTML/JS page served by Express: user picker, conversation sidebar, chat pane, source links. No build step.
 - **Users:** pick or create a username (no password, for local use). Every row is scoped by `user_id`.
 
@@ -80,6 +80,8 @@ src/server.ts          starts the app (done)
 src/agent.ts           per-turn flow: route → retrieve → answer → background memory update
 src/search.ts          web_search: Exa main, Tavily backup, fake for tests (done)
 src/context.ts         chat note, code-built searches, path choice (done)
+src/listener.ts        the listener: fast AI fills the form; code checks it (done)
+src/memoryroute.ts     memory form → last question / decision / user fact / old chat (done)
 src/llm.ts             Gemini wrapper (stream + web_search tool calls, JSON-mode calls)
 src/dates.ts           date words → date ranges in the user's time zone (done; own code, no library)
 src/things.ts          same-thing-or-not rules, join later (done)
@@ -122,7 +124,7 @@ Tests: Vitest. Quick tests (`npm test`, fake Gemini) in every phase; live tests 
 - **Phase 3 – Memory map:** ✔ done. Things, links and facts saved after each reply; "What I remember" page.
 - **Phase 4 – Remembering:** ✔ done. Dates, recall (date filter + memory map + search index), then vs now, seed script; tested on the 3 assignment questions and 60 AI-written wordings.
 - **Phase 5 – Extra features:** ✔ done. Open loops (code-only), "still true?" check, decision log; each checked in the browser with seeded chats.
-- **Phase 6 – Big check:** seed data, the 3 example questions, the tricky list, two users kept separate.
+- **Phase 6 – Big check:** ✔ done. Clean install checked; tricky list 6/6 (two users kept apart). The "listener" hybrid: fast AI understands, code acts, old rules as backup. Memory questions 29/30, follow-ups 10/10, the 3 questions right. 3.8 writing untested (Google overloaded on 12 Nov).
 - **Phase 7 – Finish:** polish, CLAUDE.md, README, DESIGN.md.
 
 Per your instructions, I'll show you the exact text of the prompts, the `/notes` skill and CLAUDE.md before saving them. Commits won't have a co-author line.
@@ -137,5 +139,4 @@ Per your instructions, I'll show you the exact text of the prompts, the `/notes`
 
 ## Open points to confirm
 - Free limits: Exa 2,500/month, Tavily 1,000/month. Watch usage during live tests.
-- Compare SEARCH_MODE code-first vs planner on fresh questions, then pick the default.
 - Node ≥22.13 is required for `node:sqlite` (you have 24.22 ✔). If the grader might use older Node, switch to `sql.js`.
