@@ -7,7 +7,7 @@ import type { ChatNote } from "./context.js";
 import type { Source } from "./llm.js";
 
 import { DEFAULT_DB_PATH } from "./config.js";
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 export interface User { id: number; name: string; createdAt: string }
 export interface Chat { id: number; userId: number; title: string; note?: ChatNote; seed?: boolean; createdAt: string; updatedAt: string }
@@ -34,6 +34,12 @@ export interface Fact {
   sourceUrl?: string; chatId?: number; messageId?: number; checkedAt: string;
 }
 export interface NewFact { thingId: number; field: string; value: string; sourceUrl?: string; chatId?: number; messageId?: number; checkedAt?: string }
+
+// An open loop: something the user started but hasn't finished, e.g. "pick one of these 5 CRMs".
+export interface Loop {
+  id: number; chatId: number; text: string; things: string[];
+  status: "open" | "closed"; choice?: string; openedAt: string; closedAt?: string; closedInChatId?: number;
+}
 
 export interface NewMessage {
   role: "user" | "assistant";
@@ -127,6 +133,21 @@ CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE OF text ON message
   INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.id, old.text);
   INSERT INTO messages_fts(rowid, text) VALUES (new.id, new.text);
 END;
+
+-- Open loops: started but not finished ("pick one of these 5 CRMs"). Closed when the user decides.
+CREATE TABLE IF NOT EXISTS loops (
+  id                 INTEGER PRIMARY KEY,
+  user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  chat_id            INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+  text               TEXT NOT NULL,                 -- e.g. "Pick one: HubSpot, Pipedrive, Salesforce"
+  things             TEXT NOT NULL DEFAULT '[]',    -- JSON list of the options
+  status             TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+  choice             TEXT,                          -- what was picked, if anything
+  opened_at          TEXT NOT NULL,
+  closed_at          TEXT,
+  closed_in_chat_id  INTEGER REFERENCES chats(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS loops_by_user_status ON loops(user_id, status, opened_at);
 `;
 
 type Row = Record<string, unknown>;
@@ -164,6 +185,44 @@ export class Db {
 
   setState(key: string, value: string): void {
     this.db.prepare("INSERT INTO app_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+  }
+
+  // --- Open loops ---------------------------------------------------------------
+
+  addLoop(userId: number, l: { chatId: number; text: string; things: string[]; openedAt?: string }): Loop {
+    if (!this.getChat(userId, l.chatId)) throw new Error(`Chat ${l.chatId} not found for this user.`);
+    const openedAt = l.openedAt ?? this.stamp();
+    const { lastInsertRowid } = this.db
+      .prepare("INSERT INTO loops (user_id, chat_id, text, things, opened_at) VALUES (?, ?, ?, ?, ?)")
+      .run(userId, l.chatId, l.text, JSON.stringify(l.things), openedAt);
+    return { id: Number(lastInsertRowid), chatId: l.chatId, text: l.text, things: l.things, status: "open", openedAt };
+  }
+
+  // Updates an open loop's options (e.g. a 6th CRM added to the shortlist in the same chat).
+  updateLoop(userId: number, loopId: number, l: { text: string; things: string[] }): void {
+    this.db.prepare("UPDATE loops SET text = ?, things = ? WHERE id = ? AND user_id = ? AND status = 'open'")
+      .run(l.text, JSON.stringify(l.things), loopId, userId);
+  }
+
+  getLoop(userId: number, loopId: number): Loop | undefined {
+    const row = this.db.prepare("SELECT * FROM loops WHERE id = ? AND user_id = ?").get(loopId, userId) as Row | undefined;
+    return row ? toLoop(row) : undefined;
+  }
+
+  // A user's loops, newest first. status: "open" (default), "closed" or "all".
+  listLoops(userId: number, status: "open" | "closed" | "all" = "open"): Loop[] {
+    const rows = status === "all"
+      ? this.db.prepare("SELECT * FROM loops WHERE user_id = ? ORDER BY opened_at DESC, id DESC").all(userId)
+      : this.db.prepare("SELECT * FROM loops WHERE user_id = ? AND status = ? ORDER BY opened_at DESC, id DESC").all(userId, status);
+    return (rows as Row[]).map(toLoop);
+  }
+
+  // Closes a loop: with what was picked (if anything) and where it was decided.
+  closeLoop(userId: number, loopId: number, close: { choice?: string; chatId?: number; at?: string } = {}): boolean {
+    const { changes } = this.db
+      .prepare("UPDATE loops SET status = 'closed', choice = ?, closed_at = ?, closed_in_chat_id = ? WHERE id = ? AND user_id = ? AND status = 'open'")
+      .run(close.choice ?? null, close.at ?? this.stamp(), close.chatId ?? null, loopId, userId);
+    return Number(changes) > 0;
   }
 
   // --- Users -----------------------------------------------------------------
@@ -420,6 +479,15 @@ function toFact(r: Row): Fact {
     id: Number(r.id), thingId: Number(r.thing_id), field: String(r.field), value: String(r.value),
     ...(r.source_url ? { sourceUrl: String(r.source_url) } : {}), ...(r.chat_id ? { chatId: Number(r.chat_id) } : {}),
     ...(r.message_id ? { messageId: Number(r.message_id) } : {}), checkedAt: String(r.checked_at),
+  };
+}
+
+function toLoop(r: Row): Loop {
+  return {
+    id: Number(r.id), chatId: Number(r.chat_id), text: String(r.text), things: safeJson<string[]>(String(r.things)) ?? [],
+    status: r.status === "closed" ? "closed" : "open", ...(r.choice ? { choice: String(r.choice) } : {}),
+    openedAt: String(r.opened_at), ...(r.closed_at ? { closedAt: String(r.closed_at) } : {}),
+    ...(r.closed_in_chat_id ? { closedInChatId: Number(r.closed_in_chat_id) } : {}),
   };
 }
 

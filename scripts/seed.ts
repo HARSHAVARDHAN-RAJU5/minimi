@@ -8,6 +8,7 @@ import { loadConfig, loadEnvFile } from "../src/config.js";
 import { findDateRange } from "../src/dates.js";
 import { Db } from "../src/db.js";
 import { saveCards, type ThingCard } from "../src/extract.js";
+import { updateLoops } from "../src/loops.js";
 import type { Source } from "../src/llm.js";
 import { findOrCreateUser } from "../src/users.js";
 
@@ -103,8 +104,10 @@ for (const c of chats.sort((a, b) => a.at.localeCompare(b.at))) {
   });
   const saved = saveCards(db, user.id, { chatId: chat.id, messageId: reply.id, at: c.at }, c.cards);
   db.setChatNote(user.id, chat.id, { things: c.cards.map((t) => t.name), topic: c.topic });
+  const loop = updateLoops(db, user.id, { chatId: chat.id, question: c.question, things: c.cards.map((t) => t.name), at: c.at });
   const when = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: timezone }).format(new Date(c.at));
-  console.log(`seeded  ${when.padEnd(18)} "${c.question}"  (${saved.things} things, ${saved.facts} facts)`);
+  const loopNote = loop.opened ? `, loop opened` : loop.updated ? `, loop extended` : "";
+  console.log(`seeded  ${when.padEnd(18)} "${c.question}"  (${saved.things} things, ${saved.facts} facts${loopNote})`);
 }
 console.log(`\nDone: ${chats.length} seed chats for user "${user.name}" (time zone ${timezone}) in ${config.dbPath}.`);
 console.log(`Remove them with: npm run seed:clear${userName !== "demo" ? ` -- --user=${userName}` : ""}`);

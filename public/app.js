@@ -165,6 +165,48 @@ function showEmpty() {
   for (const button of chat.querySelectorAll(".example")) {
     button.addEventListener("click", () => { if (!controller) ask(button.textContent); });
   }
+  showOpenLoops();
+}
+
+// "Still open": choices you started but haven't made. Shown only here, on the New chat screen.
+async function showOpenLoops() {
+  const res = await api("/api/loops").catch(() => null);
+  if (!res || !res.ok) return;
+  const { loops = [] } = await res.json().catch(() => ({}));
+  const empty = chat.querySelector(".empty");
+  if (!loops.length || !empty || currentChatId) return;
+
+  const box = el("div", "loops");
+  box.append(el("h2", null, "Still open"));
+  for (const l of loops) {
+    const card = el("div", "loop");
+    card.append(el("div", "loop-text", l.text));
+    const meta = el("div", "loop-meta", `since ${dayLabel(l.openedAt)} · from `);
+    const link = el("a", null, `"${l.chat.title}"`);
+    link.href = `#chat-${l.chat.id}`;
+    meta.append(link);
+    const buttons = el("div", "loop-buttons");
+    const check = el("button", "loop-check", "Check now");
+    check.type = "button";
+    check.addEventListener("click", () => {
+      if (controller) return;
+      ask(`Since ${dayLabel(l.openedAt)} I've been choosing between ${l.things.join(", ")}. Has anything changed with them, and which would you pick?`);
+    });
+    const done = el("button", "loop-done", "Done");
+    done.type = "button";
+    done.title = "I've decided (or I don't need this any more)";
+    done.addEventListener("click", async () => {
+      const r = await api(`/api/loops/${l.id}/close`, { method: "POST", body: "{}" }).catch(() => null);
+      if (r && r.ok) {
+        card.remove();
+        if (!box.querySelector(".loop")) box.remove();
+      }
+    });
+    buttons.append(check, done);
+    card.append(meta, buttons);
+    box.append(card);
+  }
+  empty.insertBefore(box, empty.querySelector(".examples"));
 }
 
 function addUserMessage(text, createdAt) {

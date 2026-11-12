@@ -5,6 +5,7 @@ import type { ChatFn, ChatTurn } from "./agent.js";
 import type { ChatNote } from "./context.js";
 import type { Chat, Db, Message, User } from "./db.js";
 import type { Source } from "./llm.js";
+import { updateLoops } from "./loops.js";
 import { requireUser } from "./users.js";
 
 // A finished answer, handed to the memory writer (runs in the background).
@@ -61,6 +62,28 @@ export function registerChatRoutes(app: Express, { db, chat, remember }: { db: D
   app.get("/api/chats", guard, (_req, res) => {
     const user = res.locals.user as User;
     res.json({ chats: db.listChats(user.id).map(chatSummary) });
+  });
+
+  // Your open loops (started, not finished), newest first, with the chat they came from.
+  app.get("/api/loops", guard, (_req, res) => {
+    const user = res.locals.user as User;
+    res.json({
+      loops: db.listLoops(user.id, "open").map((l) => ({
+        id: l.id, text: l.text, things: l.things, openedAt: l.openedAt,
+        chat: { id: l.chatId, title: db.getChat(user.id, l.chatId)?.title ?? "" },
+      })),
+    });
+  });
+
+  // Done: close a loop (optionally with what was picked).
+  app.post("/api/loops/:id/close", guard, (req, res) => {
+    const user = res.locals.user as User;
+    const choice = typeof req.body?.choice === "string" && req.body.choice.trim() ? req.body.choice.trim().slice(0, 80) : undefined;
+    if (!db.closeLoop(user.id, Number(req.params.id), { choice })) {
+      res.status(404).json({ error: "Open loop not found." });
+      return;
+    }
+    res.json({ ok: true });
   });
 
   // What I remember: your things, the latest value of each fact, and the chats that talked about them.
@@ -152,6 +175,15 @@ export function registerChatRoutes(app: Express, { db, chat, remember }: { db: D
         }
       }
       if (newNote) db.setChatNote(user.id, current.id, newNote);
+      // Open loops: a choice started ("shortlist…", "A vs B") or made ("we went with A").
+      try {
+        const loops = updateLoops(db, user.id, { chatId: current.id, question: input.question, things: newNote?.things ?? note?.things ?? [] });
+        if (loops.opened) console.log(`loop opened: ${loops.opened.text}`);
+        if (loops.updated) console.log(`loop updated: ${loops.updated.text}`);
+        for (const c of loops.closed) console.log(`loop closed: ${c.loop.text} → ${c.choice}`);
+      } catch (err) {
+        console.warn(`loops: ${err instanceof Error ? err.message : err}`);
+      }
       res.end();
     }
   });
