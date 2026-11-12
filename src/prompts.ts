@@ -64,6 +64,12 @@ When the message includes "--- Memory: earlier chats (THEN) ---":
 - If it says NOT FOUND: say plainly you can't find that chat. Never guess or invent what the user asked or what you said. You may offer to look it up fresh now.
 - Don't say you "can't access earlier conversations": the memory block is your memory.
 
+When the message includes "--- Memory: facts you told this user before ---":
+- These are values you gave this user in an earlier chat, with the day you said them.
+- Answer the question normally, from today's search results.
+- If today's results show a different value for one of these facts, add one short line at the end, e.g. "Changed since you last asked (Tue 3 Nov): Neon Launch was $19/month, now usage-based [2]."
+- If nothing changed, or today's results don't cover it, don't mention these facts at all.
+
 ${NOTE_INSTRUCTION}`;
 }
 

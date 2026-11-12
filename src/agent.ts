@@ -6,6 +6,7 @@ import type { Db } from "./db.js";
 import { answer, createGeminiModel, withFallback, type AgentEvent, type AnswerInput, type ChatModel, type FallbackInfo } from "./llm.js";
 import { plannerPrompt, writerPrompt } from "./prompts.js";
 import { memoryBlock, memorySearches, recall, recallSummary } from "./recall.js";
+import { oldFactsFor, stillTrueBlock } from "./stilltrue.js";
 import { webSearchFromConfig, type WebSearch } from "./search.js";
 
 // Earlier messages on the page, so follow-ups like "and Supabase?" work.
@@ -99,8 +100,15 @@ export function createAgent(
     // Who builds the searches: code (instant) or the AI planner (backup).
     const route = chooseSearchPath(question, note, config.searchMode);
     log(`path: ${route.path} (${route.reason})${route.queries ? ` → ${route.queries.join(" | ")}` : ""}`);
+
+    // "Still true?": the question names something we told this user about before → give the writer
+    // those old values, so it can mention a change (and stay quiet if nothing changed).
+    const oldFacts = db?.listThings && userId && route.path !== "none" ? oldFactsFor(db as Db, userId, question) : [];
+    if (oldFacts.length) log(`still true?: ${oldFacts.length} old facts (${[...new Set(oldFacts.map((f) => f.thing))].join(", ")})`);
+
     yield* answer({
       ...common,
+      memory: stillTrueBlock(oldFacts, timezone),
       options: { presetQueries: route.queries, noSearch: route.path === "none", plannerTimeoutMs: PLANNER_TIMEOUT_MS, withNote: true },
     });
   };
