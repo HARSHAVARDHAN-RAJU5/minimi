@@ -127,3 +127,29 @@ describe("app state", () => {
     expect(db.getState("skip_until:x")).toBe("456");
   });
 });
+
+describe("seed chats", () => {
+  it("are marked, backdated, and removed in one go with their messages, links, facts and leftover things; real chats stay", () => {
+    const u = db.createUser("demo");
+    const real = db.createChat(u.id, "real chat");
+    db.addMessage(u.id, real.id, { role: "user", text: "keep me" });
+    const sharedThing = db.createThing(u.id, { name: "Neon" });
+    db.addMention(u.id, { thingId: sharedThing.id, chatId: real.id });
+
+    const seed = db.createChat(u.id, "pretend", { seed: true, createdAt: "2026-11-03T08:35:00.000Z" });
+    expect(seed).toMatchObject({ seed: true, createdAt: "2026-11-03T08:35:00.000Z", updatedAt: "2026-11-03T08:35:00.000Z" });
+    db.addMessage(u.id, seed.id, { role: "user", text: "old question", createdAt: "2026-11-03T08:35:00.000Z" });
+    const onlySeed = db.createThing(u.id, { name: "Render" });
+    db.addMention(u.id, { thingId: onlySeed.id, chatId: seed.id });
+    db.addMention(u.id, { thingId: sharedThing.id, chatId: seed.id });
+    db.addFact(u.id, { thingId: sharedThing.id, field: "price", value: "$19", chatId: seed.id });
+
+    expect(db.clearSeed(u.id)).toBe(1);
+    expect(db.listChats(u.id).map((c) => c.title)).toEqual(["real chat"]);
+    expect(db.listMessages(u.id, real.id).map((m) => m.text)).toEqual(["keep me"]);
+    expect(db.listThings(u.id).map((t) => t.name)).toEqual(["Neon"]); // Render only came from the seed
+    expect(db.listFacts(u.id, sharedThing.id)).toEqual([]);
+    expect(db.searchMessages(u.id, ["old"])).toEqual([]); // search index cleaned too
+    expect(db.clearSeed(u.id)).toBe(0);
+  });
+});

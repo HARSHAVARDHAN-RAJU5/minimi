@@ -7,10 +7,10 @@ import type { ChatNote } from "./context.js";
 import type { Source } from "./llm.js";
 
 import { DEFAULT_DB_PATH } from "./config.js";
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 export interface User { id: number; name: string; createdAt: string }
-export interface Chat { id: number; userId: number; title: string; note?: ChatNote; createdAt: string; updatedAt: string }
+export interface Chat { id: number; userId: number; title: string; note?: ChatNote; seed?: boolean; createdAt: string; updatedAt: string }
 export interface Message {
   id: number;
   chatId: number;
@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS chats (
   user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title      TEXT NOT NULL,
   note       TEXT,               -- JSON: { things, topic } from the last answer
+  seed       INTEGER NOT NULL DEFAULT 0,  -- 1 = a pretend chat for testing (npm run seed); removable in one go
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -139,6 +140,11 @@ export class Db {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 3000;");
     const before = Number((this.db.prepare("PRAGMA user_version").get() as Row).user_version);
+    // Older database: add columns that came later, before the rest of the schema uses them.
+    if (before > 0 && before < 4) {
+      const columns = (this.db.prepare("PRAGMA table_info(chats)").all() as Row[]).map((c) => String(c.name));
+      if (!columns.includes("seed")) this.db.exec("ALTER TABLE chats ADD COLUMN seed INTEGER NOT NULL DEFAULT 0");
+    }
     this.db.exec(SCHEMA);
     // Older database: fill the new search index with the messages saved before it existed.
     if (before > 0 && before < 3) this.db.exec("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')");
@@ -180,10 +186,34 @@ export class Db {
 
   // --- Chats -----------------------------------------------------------------
 
-  createChat(userId: number, title: string): Chat {
-    const t = this.stamp();
-    const { lastInsertRowid } = this.db.prepare("INSERT INTO chats (user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)").run(userId, title, t, t);
-    return { id: Number(lastInsertRowid), userId, title, createdAt: t, updatedAt: t };
+  // opts.seed marks a pretend chat (testing); opts.createdAt backdates it.
+  createChat(userId: number, title: string, opts: { seed?: boolean; createdAt?: string } = {}): Chat {
+    const t = opts.createdAt ?? this.stamp();
+    const { lastInsertRowid } = this.db
+      .prepare("INSERT INTO chats (user_id, title, seed, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+      .run(userId, title, opts.seed ? 1 : 0, t, t);
+    return { id: Number(lastInsertRowid), userId, title, ...(opts.seed ? { seed: true } : {}), createdAt: t, updatedAt: t };
+  }
+
+  // Removes this user's pretend (seed) chats with their messages, links and facts, and any things
+  // left with nothing pointing to them. Real chats are never touched. Returns how many chats went.
+  clearSeed(userId: number): number {
+    const ids = (this.db.prepare("SELECT id FROM chats WHERE user_id = ? AND seed = 1").all(userId) as Row[]).map((r) => Number(r.id));
+    if (ids.length === 0) return 0;
+    const list = ids.join(",");
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`DELETE FROM facts WHERE user_id = ? AND chat_id IN (${list})`).run(userId);
+      this.db.prepare(`DELETE FROM chats WHERE user_id = ? AND id IN (${list})`).run(userId); // messages + mentions go with them
+      this.db.prepare(`DELETE FROM things WHERE user_id = ?
+        AND id NOT IN (SELECT thing_id FROM mentions WHERE user_id = ?)
+        AND id NOT IN (SELECT thing_id FROM facts WHERE user_id = ?)`).run(userId, userId, userId);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+    return ids.length;
   }
 
   // Only finds the chat if it belongs to this user.
@@ -401,7 +431,8 @@ function toChat(r: Row): Chat {
   const note = r.note ? safeJson<ChatNote>(String(r.note)) : undefined;
   return {
     id: Number(r.id), userId: Number(r.user_id), title: String(r.title),
-    ...(note ? { note } : {}), createdAt: String(r.created_at), updatedAt: String(r.updated_at),
+    ...(note ? { note } : {}), ...(Number(r.seed) === 1 ? { seed: true } : {}),
+    createdAt: String(r.created_at), updatedAt: String(r.updated_at),
   };
 }
 
