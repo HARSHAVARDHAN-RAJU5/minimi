@@ -3,11 +3,13 @@
 // For each 2-question chat:
 //   turn 1: real answer (lite plans, searches, lite writes + a hidden <note>)
 //   turn 2: code builds searches from the note  vs  AI planner with the chat history
+//           vs  the listener (what the agent does now; old code rules if its form fails)
 // Run: npm run eval:context
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { Content } from "@google/genai";
 import { loadConfig, loadEnvFile, requireGeminiKey } from "../src/config.js";
 import { chooseSearchPath, noteFromSearches, splitNote, type ChatNote } from "../src/context.js";
+import { understand } from "../src/listener.js";
 import { answer, createGeminiModel, isDailyQuota, isQuotaOrBusy, type ChatModel } from "../src/llm.js";
 import { plannerPrompt, writerPrompt } from "../src/prompts.js";
 import { webSearchFromConfig } from "../src/search.js";
@@ -128,12 +130,19 @@ for (const c of CASES) {
     const ai = await retry(() => aiPlanner(lite, history, c.second));
     const built = { queries: route.path === "code" ? route.queries! : route.path === "planner" ? ai.queries : [], reason: route.reason };
 
+    // Turn 2c: the listener, as the agent uses it (its form fails → the code-first searches above).
+    const heard = await understand(lite, { question: c.second, history: [{ role: "user", text: c.first }, { role: "assistant", text: visible }], timezone: TZ }, 15_000);
+    const lu = heard.understanding;
+    const lq = lu && (lu.type === "new" || lu.type === "follow_up") ? lu.searches : built.queries;
+    const lWhy = lu ? `${lu.type}${lu.products.length ? ` products=${lu.products.join("/")}` : ""}` : `failed (${heard.problem}) → code-first`;
+
     const row = {
       case: c.name, first: c.first, second: c.second, turn1Searches: searches,
       writerNoteValid: Boolean(writerNote), writerNote, backupNote, noteUsed: writerNote ? "writer" : backupNote ? "backup" : "none",
       noteLeakedToAnswer: /<note>/i.test(visible),
       code: { queries: built.queries, reason: built.reason, ms: Math.round(codeMs * 1000) / 1000, coverage: coverage(c.must, built.queries) },
       ai: { queries: ai.queries, ms: Math.round(ai.ms), coverage: coverage(c.must, ai.queries) },
+      listener: { queries: lq, form: lWhy, ms: Math.round(heard.ms), coverage: coverage(c.must, lq) },
     };
     rows.push(row);
     appendFileSync(rowsFile, JSON.stringify(row) + "\n");
@@ -141,6 +150,7 @@ for (const c of CASES) {
     console.log(`  note: ${writerNote ? `writer ✓ ${JSON.stringify(writerNote)}` : `writer ✗, backup ${JSON.stringify(backupNote)}`}`);
     console.log(`  code-first [${route.path}: ${route.reason}] (cover ${(row.code.coverage * 100).toFixed(0)}%): ${built.queries.join(" | ") || "(no search)"}`);
     console.log(`  AI   (${(ai.ms / 1000).toFixed(1)} s, cover ${(row.ai.coverage * 100).toFixed(0)}%): ${ai.queries.join(" | ") || "(no search)"}`);
+    console.log(`  listener [${lWhy}] (${(heard.ms / 1000).toFixed(1)} s, cover ${(row.listener.coverage * 100).toFixed(0)}%): ${lq.join(" | ") || "(no search)"}`);
   } catch (err) {
     console.log(`\n${c.name}: ERROR ${err instanceof Error ? err.message.slice(0, 160) : err}`);
     if (isDailyQuota(err)) break;
@@ -148,7 +158,7 @@ for (const c of CASES) {
   await sleep(4_000); // stay under per-minute limits
 }
 
-type R = { code: { coverage: number; ms: number }; ai: { coverage: number; ms: number }; writerNoteValid: boolean; noteLeakedToAnswer: boolean };
+type R = { code: { coverage: number; ms: number }; ai: { coverage: number; ms: number }; listener: { coverage: number; ms: number }; writerNoteValid: boolean; noteLeakedToAnswer: boolean };
 const rs = rows as unknown as R[];
 const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / (xs.length || 1);
 console.log(`\n=== ${rs.length} chats ===`);
@@ -156,6 +166,8 @@ console.log(`writer note valid:        ${rs.filter((r) => r.writerNoteValid).len
 console.log(`note leaked into answer:  ${rs.filter((r) => r.noteLeakedToAnswer).length}/${rs.length}`);
 console.log(`code-first:     full coverage ${rs.filter((r) => r.code.coverage === 1).length}/${rs.length}, avg ${(avg(rs.map((r) => r.code.coverage)) * 100).toFixed(0)}%, avg time ${avg(rs.map((r) => r.code.ms)).toFixed(2)} ms`);
 console.log(`AI planner:     full coverage ${rs.filter((r) => r.ai.coverage === 1).length}/${rs.length}, avg ${(avg(rs.map((r) => r.ai.coverage)) * 100).toFixed(0)}%, avg time ${(avg(rs.map((r) => r.ai.ms)) / 1000).toFixed(1)} s`);
+
+console.log(`listener:       full coverage ${rs.filter((r) => r.listener.coverage === 1).length}/${rs.length}, avg ${(avg(rs.map((r) => r.listener.coverage)) * 100).toFixed(0)}%, avg time ${(avg(rs.map((r) => r.listener.ms)) / 1000).toFixed(1)} s`);
 
 const file = `evals/context-${stamp}.json`;
 writeFileSync(file, JSON.stringify({ date: new Date().toISOString(), model: config.geminiFastModel, rows }, null, 2));
