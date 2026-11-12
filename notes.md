@@ -5,7 +5,7 @@ Source for DESIGN.md. Rewrite points in place; don't append logs. Keep it to abo
 A chat agent as good as online chat apps. Web search is its only tool. It remembers past
 conversations by date and topic, so it can answer "Last Tuesday I asked about X. Has it changed?"
 Users: busy founders and team leads who juggle many jobs (the same people minimi serves).
-Status: Phase 3 (memory map) done: after each answer, the fast AI writes memory cards (things + dated facts with sources), code checks them, and a "What I remember" page shows them.
+Status: Phase 4 (remembering) done: the 3 assignment questions get real answers (find the old chat by date and topic, check each remembered thing now, compare then vs now) in 1.5–4 s.
 
 ## Rules
 - JS/TS on Node. Runs with `npm install` then `npm run dev`.
@@ -14,10 +14,10 @@ Status: Phase 3 (memory map) done: after each answer, the fast AI writes memory 
 - Must be fast, correct, and remember what the user asked and when. "Best architecture wins."
 - Submit: GitHub repo with a design .md, a 60-second video, top 3 projects.
 
-## How it works (planned)
-1. Code turns dates like "last Tuesday" into real dates; a quick model call decides if old conversations are needed.
+## How it works
+1. Code (no AI) turns dates like "last Tuesday", "3 November", "the 3rd" into real date ranges in the user's time zone, and spots memory questions ("I asked", "still correct", "changed since").
 2. Code uses the memory map to find matching chats, then reads the real saved messages and facts (what was asked, answered, prices, sources, as-of date).
-3. Model answers with web search on and compares "then" with "now", with sources.
+3. Memory questions: code searches each remembered thing (none can be forgotten); the writer gets THEN (old chat + facts saved then) and NOW (fresh results) and says what changed. Nothing found → no search, an honest "can't find it".
 4. Search results are saved while answering. After the reply, one background AI call updates the map, chat summary and user profile, rewriting them rather than appending.
 
 ## Decisions so far (and why)
@@ -32,7 +32,7 @@ Status: Phase 3 (memory map) done: after each answer, the fast AI writes memory 
 - Speed: code builds the searches when it finds a product name in the question or the chat's note (under 1 ms). The AI planner (lite, 1–14 s) is the backup when code finds nothing, or always with SEARCH_MODE=planner. If the planner breaks, search the question as-is. Small talk (thanks/hi/ok) → no search at all. Planner: one round when its searches found something; dropped after 5 s → search the question as-is.
 - Chat note: the writer adds a hidden <note> {things, topic} at the end of each answer; the server cuts it out of the stream. Missing or broken → code builds it from the searches. Saved on the chat in the database; follow-ups load it from there.
 - Saving: the question is saved before answering (kept even if the answer fails); the answer after, with sources, searches, time zone and exact time. A cut-off answer is saved marked "stopped".
-- Seeding: pretend past chats with a "seed" label, for testing only. Same saving steps as real chats, deletable in one go. Real use starts empty.
+- Seeding: npm run seed adds pretend past chats (dates relative to today) marked "seed", through the same saving code as real chats; npm run seed:clear removes them and nothing else. Real use starts empty.
 - Models: 3.8-flash writes answers (only 20 free requests/day; after a daily-quota refusal it's skipped until Google's reset time and lite writes). flash-lite is the backup planner. The "skip until" time is saved in the database (app_state table), so a restart doesn't waste a refused try. If the main writer sends nothing in 8 s, lite takes over and the main writer rests 5 min.
 - Way of working: small steps; test, then commit after each one; /notes at the last step of each phase; notes go into that step's commit.
 - Tests: Vitest. Quick tests use a fake Gemini (fast, free, same result every time); live tests use the real one, run now and then.
@@ -45,7 +45,8 @@ Status: Phase 3 (memory map) done: after each answer, the fast AI writes memory 
 - Unsure → keep separate. Pick using date, words and source chat; if two still fit and disagree, ask the user.
 - Same thing or not: same name + same website or same kind → same. Different website or kind → different (two Apollos). Same website alone isn't enough (AWS RDS vs S3). A changed website with the same kind stays the same thing (Neon: neon.tech → neon.com). Unsure → kept apart, joined later when a website proves it.
 - Old and new facts are both kept, each with its date.
-- Nothing found → say so, never make it up.
+- Nothing found → say so, never make it up. Date given but no chat that day about the topic → show that day's chats, marked "not about X". "last Tuesday" with no match → look one week earlier and say so.
+- Old answers lose their [n] citation numbers before the writer sees them: they pointed to old sources, not today's.
 - A test list of tricky questions, checked after every change.
 
 ## Extra features (match minimi: remember, and nudge at the right moment)
@@ -74,6 +75,8 @@ Their users are busy founders and team leads. These features show the agent fits
 - Writer prompt: make "as of" use the exact date (one answer said "October/November 2026").
 - Fact names vary between answers ("Pro plan price" vs "Pro plan base price"). Phase 4 must match close names, or the card writer prompt needs fixed names.
 - Re-run speed tests with 3.8 writing (normal vs less thinking), 3 runs each, at a quiet time.
+- Re-run the 3 questions with 3.8 writing. With the fast model, one answer contradicted itself ("No pricing has changed" + a "Changed" row) and one wrote "[THEN]" on old values.
+- Broader memory test: different memory questions (not rewordings) over a richer history. Expected gaps: "this month"/"in October", "my last question", facts about the user (team size, budget), decisions, synonyms.
 - Fresh test of code-built searches on 10 new chats. First test: code 10/10 vs AI planner 8/10, but the code was fixed against those same questions.
 
 ## Next week ideas
@@ -95,3 +98,6 @@ Their users are busy founders and team leads. These features show the agent fits
 - Google's lite model sometimes breaks an answer midway (503 "high demand"); the partial answer is saved as stopped and the error is now logged.
 - The fact check first let a made-up "$2" through because the answer had the citation mark "[2]"; citation marks are now ignored.
 - 3.8 refused in under 1 s on a plain call but hung ~27 s on the streaming call the app uses. Measure the exact path the app uses.
+- Recall eval: 30 AI-written wordings went 21/30 → 30/30 after two fixes; on a fresh unseen set 29/30. Only "3/11" (unclear day/month order) still fails. Always re-test on an unseen set.
+- Leftover everyday words ("hey", "question", "response") were being treated as the topic and hid the right chat.
+- With the fast model writing, the first version of answer 3 mixed today's value into the THEN value and called a real change "Unchanged"; a firmer prompt ("copy THEN exactly; any difference = Changed") fixed it.

@@ -1,6 +1,6 @@
 # Plan: "minimi" — chat agent with web search + long-term memory
 
-> **Status:** planning done, Phases 0–3 done. Add, cut or change anything as we go.
+> **Status:** planning done, Phases 0–4 done. Add, cut or change anything as we go.
 
 ## Context
 Goal: a chat agent that feels as good as online chat apps, with **web search as its only tool**, and that **remembers past conversations by date and topic**, so it can answer:
@@ -13,7 +13,7 @@ Choices made: **Gemini** (free tier), **simple web UI**, **multiple users**, fre
 
 ## Main idea (plain words)
 When you send a message:
-1. Code works out the real dates ("last Tuesday" → 2026-11-03) and asks Gemini a quick question: "does this need old conversations? which topics?"
+1. Code works out the real dates ("last Tuesday" → Tue 10 Nov) and spots memory questions (no AI call).
 2. Code uses the **memory map** to find matching chats, then reads the real saved messages and facts (what you asked, what we answered, prices with sources, as-of date).
 3. Gemini answers, using the web_search tool (Exa, Tavily backup) when needed, comparing "what we said then" with "what's true now", and cites its sources.
 4. Search results are saved while answering. After the reply, one background AI call **rewrites** (not appends) the map, the chat summary and your profile.
@@ -81,12 +81,13 @@ src/agent.ts           per-turn flow: route → retrieve → answer → backgrou
 src/search.ts          web_search: Exa main, Tavily backup, fake for tests (done)
 src/context.ts         chat note, code-built searches, path choice (done)
 src/llm.ts             Gemini wrapper (stream + web_search tool calls, JSON-mode calls)
-src/dates.ts           chrono-node resolution with timezone + "today" injection
+src/dates.ts           date words → date ranges in the user's time zone (done; own code, no library)
 src/things.ts          same-thing-or-not rules, join later (done)
 src/extract.ts         card writer: ask → check → save (done)
-src/memory/retrieve.ts date filter + map lookup + ranking + "ask user" when unclear
+src/recall.ts          find the old chat, memory searches, memory block (done)
 src/memory/consolidate.ts  rewrite map, chat notes + user profile (join only when sure)
-scripts/seed.ts        seed / clear pretend chats (label "seed")
+scripts/seed.ts        seed / clear pretend chats (label "seed") (done)
+scripts/eval-recall.ts different wordings of the 3 questions (done)
 tests/tricky.test.ts   tricky-question test list (same names, same topic different days, changed prices)
 src/prompts.ts         planner + writer prompts (done); consolidation prompts later
 public/index.html, public/app.js, public/style.css   chat page + What I remember page (done)
@@ -116,7 +117,7 @@ Tests: Vitest. Quick tests (`npm test`, fake Gemini) in every phase; live tests 
   4. Chat page: text box, word-by-word answer, progress lines, source links; live browser check.
 - **Phase 2 – Saving chats:** ✔ done. Users, chat list, messages saved with dates; user-tested in the browser.
 - **Phase 3 – Memory map:** ✔ done. Things, links and facts saved after each reply; "What I remember" page.
-- **Phase 4 – Remembering:** dates, finding the right old chat, "still true?" answers.
+- **Phase 4 – Remembering:** ✔ done. Dates, recall (date filter + memory map + search index), then vs now, seed script; tested on the 3 assignment questions and 60 AI-written wordings.
 - **Phase 5 – Extra features:** open loops, "still true?" check, decision log.
 - **Phase 6 – Big check:** seed data, the 3 example questions, the tricky list, two users kept separate.
 - **Phase 7 – Finish:** polish, CLAUDE.md, README, DESIGN.md.
