@@ -28,6 +28,7 @@ export type AgentEvent =
   | { type: "search_failed"; query: string; error: string }
   | { type: "text"; text: string }
   | { type: "note"; note: ChatNote } // hidden "what we're talking about" note, for the next question
+  | { type: "recall"; found: boolean; label?: string; chats: Array<{ id: number; title: string; when: string }>; note?: string } // old chat(s) used
   | { type: "sources"; sources: Source[] }
   | { type: "done" };
 
@@ -188,6 +189,7 @@ export interface AnswerInput {
   writerSystem: string;
   question: string;
   history?: Content[]; // earlier turns of this chat (plain text)
+  memory?: string; // memory questions: the old chat(s) and facts saved then, given to the writer
   options?: AnswerOptions;
   onTimings?: (t: Timings) => void;
   onPlannerError?: (err: unknown) => void; // planner broke; we searched the question as-is instead
@@ -292,7 +294,7 @@ export async function* answer(input: AnswerInput): AsyncGenerator<AgentEvent> {
 
   // 2) Writing: the writer gets the question plus results as plain numbered text
   //    (another model's tool messages and thought signatures can't be passed across models).
-  const writeContents: Content[] = [...history, { role: "user", parts: [{ text: withResults(question, found) }] }];
+  const writeContents: Content[] = [...history, { role: "user", parts: [{ text: withResults(question, found, input.memory) }] }];
   const stripper = options.withNote ? new NoteStripper() : undefined;
   let fullText = "";
   const emit = (text: string): AgentEvent | undefined => {
@@ -391,8 +393,11 @@ function numbered(sources: Map<string, Source>, r: SearchResult) {
   return { n: source.n, title: r.title, url: r.url, publishedDate: r.publishedDate, content: r.content };
 }
 
-// The writer's message: the question, then every search with its numbered results.
-export function withResults(question: string, found: Found[]): string {
+// The writer's message: the question, the memory block (if any), then every search with its numbered results.
+export function withResults(question: string, found: Found[], memory?: string): string {
+  if (memory) question = `${question}
+
+${memory}`;
   if (found.length === 0) return question;
   const blocks = found.map(({ query, results, error }) => {
     if (error) return `Search "${query}": FAILED (${error})`;

@@ -2,14 +2,17 @@
 import type { Content } from "@google/genai";
 import { missingKeys, type Config } from "./config.js";
 import { chooseSearchPath, type ChatNote } from "./context.js";
-import { answer, createGeminiModel, withFallback, type AgentEvent, type ChatModel, type FallbackInfo } from "./llm.js";
+import type { Db } from "./db.js";
+import { answer, createGeminiModel, withFallback, type AgentEvent, type AnswerInput, type ChatModel, type FallbackInfo } from "./llm.js";
 import { plannerPrompt, writerPrompt } from "./prompts.js";
+import { memoryBlock, memorySearches, recall, recallSummary } from "./recall.js";
 import { webSearchFromConfig, type WebSearch } from "./search.js";
 
 // Earlier messages on the page, so follow-ups like "and Supabase?" work.
 export interface ChatTurn { role: "user" | "assistant"; text: string }
-// note: the "what we're talking about" note from the last answer (kept by the page for now).
-export interface ChatInput { question: string; history?: ChatTurn[]; timezone?: string; note?: ChatNote }
+// note: the "what we're talking about" note from the last answer.
+// userId + messageId (the saved question): needed to look through this user's old chats.
+export interface ChatInput { question: string; history?: ChatTurn[]; timezone?: string; note?: ChatNote; userId?: number; messageId?: number }
 export type ChatFn = (input: ChatInput) => AsyncGenerator<AgentEvent>;
 
 export function toContents(history: ChatTurn[] = []): Content[] {
@@ -30,11 +33,19 @@ export const PLANNER_TIMEOUT_MS = 5000;
 // The smart writer normally starts in ~3 s; when it's overloaded it can hang ~27 s before failing.
 export const WRITER_FIRST_CHUNK_MS = 8000;
 
-export function createAgent(config: Config, log: (line: string) => void = console.log, state?: AppState): ChatFn {
+// db: keeps the used-up quota across restarts, and lets memory questions look through old chats.
+// fakes: tests can plug in a fake planner, writer and search instead of the real ones.
+export function createAgent(
+  config: Config,
+  log: (line: string) => void = console.log,
+  db?: AppState & Partial<Db>,
+  fakes?: { planner: ChatModel; writer: ChatModel; search: WebSearch },
+): ChatFn {
+  const state = db;
   // Built once on first use and kept, so the writer remembers a used-up daily quota between chats.
-  let parts: { planner: ChatModel; writer: ChatModel; search: WebSearch } | undefined;
+  let parts: { planner: ChatModel; writer: ChatModel; search: WebSearch } | undefined = fakes;
 
-  return async function* chat({ question, history, timezone, note }) {
+  return async function* chat({ question, history, timezone, note, userId, messageId }) {
     // Checked per chat (not at start-up) so the page still opens without keys.
     const missing = missingKeys(config);
     if (missing.length) throw new Error(`Add ${missing.join(" and ")} to .env (copy .env.example to .env first).`);
@@ -56,21 +67,41 @@ export function createAgent(config: Config, log: (line: string) => void = consol
       };
     }
 
-    // Who builds the searches: code (instant) or the AI planner (backup).
-    const route = chooseSearchPath(question, note, config.searchMode);
-    log(`path: ${route.path} (${route.reason})${route.queries ? ` → ${route.queries.join(" | ")}` : ""}`);
-
-    yield* answer({
+    const common: Omit<AnswerInput, "options" | "memory"> = {
       ...parts,
       plannerSystem: plannerPrompt(timezone),
       writerSystem: writerPrompt(timezone),
       question,
       history: toContents(history),
-      options: { presetQueries: route.queries, noSearch: route.path === "none", plannerTimeoutMs: PLANNER_TIMEOUT_MS, withNote: true },
       onPlannerError: (err) => log(`planner failed (${err instanceof Error ? err.message.slice(0, 80) : err}) → searching the question as-is`),
       onTimings: (t) => log(
         `timing: plan ${t.planMs.map(ms).join("+") || "-"}, search ${t.searchMs.map(ms).join("+") || "-"}, first word ${t.firstTextMs === undefined ? "-" : ms(t.firstTextMs)}, total ${ms(t.totalMs)}`,
       ),
+    };
+
+    // Memory question ("what did I ask on 3 Nov?", "since Monday…"): find the old chat, check each
+    // remembered thing now, and give the writer THEN (old chat + facts) and NOW (fresh results).
+    const rec = db?.listThings && userId ? recall(db as Db, userId, question, { timezone, beforeMessageId: messageId }) : undefined;
+    if (rec) {
+      log(`memory question: ${rec.reason}`);
+      yield { type: "recall", ...recallSummary(rec) };
+      const queries = memorySearches(rec, question);
+      const nothingToCheck = rec.status === "none" || (rec.hasTopic && !rec.topicMatched);
+      log(`path: memory → ${queries.length ? queries.join(" | ") : nothingToCheck ? "no search" : "planner"}`);
+      yield* answer({
+        ...common,
+        memory: memoryBlock(rec, timezone),
+        options: { presetQueries: queries, noSearch: nothingToCheck, plannerTimeoutMs: PLANNER_TIMEOUT_MS, withNote: true },
+      });
+      return;
+    }
+
+    // Who builds the searches: code (instant) or the AI planner (backup).
+    const route = chooseSearchPath(question, note, config.searchMode);
+    log(`path: ${route.path} (${route.reason})${route.queries ? ` → ${route.queries.join(" | ")}` : ""}`);
+    yield* answer({
+      ...common,
+      options: { presetQueries: route.queries, noSearch: route.path === "none", plannerTimeoutMs: PLANNER_TIMEOUT_MS, withNote: true },
     });
   };
 }

@@ -233,6 +233,9 @@ button { font: inherit; cursor: pointer; }
 .progress li.warn { color: var(--error-text); }
 .progress li::before { content: "🔍 "; }
 .progress li.warn::before { content: "⚠️ "; }
+.progress li.memory { color: var(--text); }
+.progress li.memory::before { content: "📂 "; }
+.progress li.memory a { color: var(--accent); text-decoration: none; }
 
 .answer { overflow-wrap: anywhere; }
 .answer > :first-child { margin-top: 0; }

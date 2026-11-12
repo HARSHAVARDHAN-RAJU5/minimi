@@ -372,6 +372,22 @@ async function ask(question) {
         titleEl.textContent = data.title;
         history.replaceState(null, "", `#chat-${data.id}`);
         if (isNew) loadChatList();
+      } else if (event === "recall") {
+        // Memory question: which old chat(s) the answer is based on.
+        const li = el("li", "memory");
+        if (data.found) {
+          li.append(document.createTextNode(`Found your chat${data.chats.length > 1 ? "s" : ""} from ${data.label ?? "earlier"}: `));
+          data.chats.forEach((c, i) => {
+            if (i) li.append(document.createTextNode(", "));
+            const a = el("a", null, `"${c.title}"`);
+            a.href = `#chat-${c.id}`;
+            li.append(a);
+          });
+          if (data.note) li.append(document.createTextNode(` (${data.note})`));
+        } else {
+          li.textContent = data.note || "No saved chat found";
+        }
+        view.progress.append(li);
       } else if (event === "search") {
         view.progress.append(el("li", null, `Searching: ${data.query}`));
       } else if (event === "search_failed") {

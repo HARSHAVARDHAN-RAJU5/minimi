@@ -27,6 +27,7 @@ export interface Recall {
   // false = there was a date, nothing that day matched the topic words, so these are simply
   // all the chats from that day ("you didn't ask about X then; you asked about …").
   topicMatched: boolean;
+  hasTopic: boolean; // the question named a topic (words or remembered things)
   reason: string; // for the log
 }
 
@@ -144,7 +145,7 @@ export function recall(db: Db, userId: number, question: string, opts: RecallOpt
     }
   }
 
-  const base = { range, usedWeekEarlier, topic, matchedThings, topicMatched };
+  const base = { range, usedWeekEarlier, topic, matchedThings, topicMatched, hasTopic };
   if (found.picked.length === 0) {
     const where = range ? `on ${range.label}` : "in your saved chats";
     const about = hasTopic ? ` about ${[...matchedThings.map((t) => t.name), ...topic].slice(0, 4).join(", ")}` : "";
@@ -173,4 +174,94 @@ export function recall(db: Db, userId: number, question: string, opts: RecallOpt
   const reason = `found ${chats.length} chat${chats.length > 1 ? "s" : ""}${searched ? ` on ${searched.label}` : ""}`
     + `${usedWeekEarlier ? " (a week earlier)" : ""}${hasTopic && !topicMatched ? " (none about the topic; showing that day's chats)" : ""}`;
   return { status: "found", ...base, chats, reason };
+}
+
+// --- Using what was found ----------------------------------------------------------------
+
+const PRICE_WORDS = /\b(pric\w*|cost\w*|fee\w*|plan|plans|cheap\w*|expensive|\$)/i;
+const NEWS_WORDS = /\b(ship\w*|launch\w*|releas\w*|announc\w*|new|news|update\w*|feature\w*|big|major)\b/i;
+const MAX_MEMORY_THINGS = 6;
+const MAX_MEMORY_SEARCHES = 10;
+
+// The remembered things to check now. If the question names some of them ("has HubSpot changed?"),
+// only those; otherwise every thing from the old chat(s), so none can be forgotten.
+export function thingsToCheck(rec: Recall, question: string): Thing[] {
+  const all = new Map<number, Thing>();
+  for (const c of rec.chats) for (const t of c.things) all.set(t.id, t);
+  const q = normalName(question);
+  const named = [...all.values()].filter((t) => [t.name, ...t.aliases].some((n) => normalName(n).length > 1 && q.includes(normalName(n))));
+  return (named.length ? named : [...all.values()]).slice(0, MAX_MEMORY_THINGS);
+}
+
+// Searches for "then vs now", built by code: one per remembered thing (and per aspect asked about).
+// No things in the old chat → search the old question itself. Empty → nothing to look up now.
+export function memorySearches(rec: Recall, question: string, year = new Date().getFullYear()): string[] {
+  if (rec.status !== "found") return [];
+  if (rec.hasTopic && !rec.topicMatched) return []; // asked about something they never discussed then
+  const things = thingsToCheck(rec, question);
+  if (things.length === 0) {
+    const oldQuestions = rec.chats.flatMap((c) => c.messages.filter((m) => m.role === "user").map((m) => m.text));
+    return oldQuestions.slice(0, 3);
+  }
+  const wantsPrice = PRICE_WORDS.test(question);
+  const wantsNews = NEWS_WORDS.test(question);
+  // "Is your answer still correct?" names no aspect: check what the old facts were about (prices if any).
+  const oldFacts = rec.chats.flatMap((c) => c.facts);
+  const aspects = [
+    ...(wantsPrice || (!wantsNews && (oldFacts.length === 0 || oldFacts.some((f) => PRICE_WORDS.test(`${f.field} ${f.value}`)))) ? ["pricing"] : []),
+    ...(wantsNews ? ["news announcements"] : []),
+  ];
+  if (aspects.length === 0) aspects.push("latest");
+  const queries: string[] = [];
+  for (const aspect of aspects) for (const t of things) queries.push(`${t.name} ${aspect} ${year}`);
+  return queries.slice(0, MAX_MEMORY_SEARCHES);
+}
+
+const shortDay = (iso: string, timezone?: string) => {
+  try { return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: timezone }).format(new Date(iso)); }
+  catch { return new Date(iso).toDateString(); }
+};
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)} …(cut)` : text);
+
+// The memory block for the writer: data only (dates, the real saved messages, the facts saved then).
+// How to use it is in the writer's prompt.
+export function memoryBlock(rec: Recall, timezone?: string): string {
+  const lines = ["--- Memory: earlier chats (THEN) ---"];
+  const searched = rec.usedWeekEarlier ? rec.range?.weekEarlier : rec.range;
+  const asked = [...rec.matchedThings.map((t) => t.name), ...rec.topic].slice(0, 5).join(", ");
+  if (rec.status === "none") {
+    lines.push(`NOT FOUND: no saved chat ${rec.range ? `on ${rec.range.label}` : "in this user's history"}${asked ? ` about ${asked}` : ""}.`);
+    return lines.join("\n");
+  }
+  if (rec.usedWeekEarlier && rec.range) lines.push(`NOTE: nothing matched on ${rec.range.label}; these chats are from ${searched?.label} (one week earlier).`);
+  if (rec.hasTopic && !rec.topicMatched && rec.range) lines.push(`NOTE: no chat on ${rec.range.label} was about ${asked}. These are all the chats from that day.`);
+  for (const c of rec.chats) {
+    lines.push("", `Chat "${c.chat.title}", ${c.when}:`);
+    for (const m of c.messages) {
+      lines.push(m.role === "user" ? `  User asked: ${clip(m.text, 500)}` : `  You answered${m.stopped ? " (cut off)" : ""}: ${clip(m.text.replace(/\n{2,}/g, "\n"), 1500)}`);
+    }
+    if (c.facts.length) {
+      lines.push("  Facts saved then:");
+      for (const f of c.facts) lines.push(`    - ${f.thing} · ${f.field}: ${f.value} (checked ${shortDay(f.checkedAt, timezone)}${f.sourceUrl ? `, ${f.sourceUrl}` : ""})`);
+    }
+    if (c.things.length) lines.push(`  Things talked about: ${c.things.map((t) => t.name).join(", ")}`);
+  }
+  return lines.join("\n");
+}
+
+// What the page shows: "📂 Found your chat from Mon 9 Nov: …"
+export function recallSummary(rec: Recall): { found: boolean; label?: string; chats: Array<{ id: number; title: string; when: string }>; note?: string } {
+  const searched = rec.usedWeekEarlier ? rec.range?.weekEarlier : rec.range;
+  const asked = [...rec.matchedThings.map((t) => t.name), ...rec.topic].slice(0, 3).join(", ");
+  const note = rec.status === "none"
+    ? `No saved chat ${rec.range ? `on ${rec.range.label}` : ""}${asked ? ` about ${asked}` : ""}`.replace(/\s+/g, " ").trim()
+    : rec.usedWeekEarlier && rec.range ? `Nothing on ${rec.range.label}; found one a week earlier`
+    : rec.hasTopic && !rec.topicMatched && rec.range ? `Nothing about ${asked} on ${rec.range.label}; showing that day's chats`
+    : undefined;
+  return {
+    found: rec.status === "found",
+    ...(searched ? { label: searched.label } : {}),
+    chats: rec.chats.map((c) => ({ id: c.chat.id, title: c.chat.title, when: c.when })),
+    ...(note ? { note } : {}),
+  };
 }

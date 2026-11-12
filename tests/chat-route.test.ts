@@ -102,6 +102,8 @@ describe("/api/chat", () => {
       history: [{ role: "user", text: "Neon price?" }, { role: "assistant", text: "Neon is $19 [1]." }],
       timezone: "Asia/Kolkata",
       note: { things: ["Neon"], topic: "pricing" },
+      userId: user.id,
+      messageId: db.listMessages(user.id, 1)[2].id, // the saved follow-up question
     });
     expect(db.listChats(user.id)).toHaveLength(1);
     expect(db.listMessages(user.id, 1)).toHaveLength(4);

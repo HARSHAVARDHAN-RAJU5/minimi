@@ -108,7 +108,7 @@ export function registerChatRoutes(app: Express, { db, chat, remember }: { db: D
     current ??= db.createChat(user.id, makeTitle(input.question));
 
     // 1) Save the question first, so it's kept even if the answer fails.
-    db.addMessage(user.id, current.id, { role: "user", text: input.question, timezone: input.timezone });
+    const asked = db.addMessage(user.id, current.id, { role: "user", text: input.question, timezone: input.timezone });
 
     // SSE: a live one-way stream of small updates to the page.
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
@@ -127,7 +127,7 @@ export function registerChatRoutes(app: Express, { db, chat, remember }: { db: D
 
     try {
       if (!chat) throw new Error("Chat is not set up.");
-      for await (const event of chat({ question: input.question, history, timezone: input.timezone, ...(note ? { note } : {}) })) {
+      for await (const event of chat({ question: input.question, history, timezone: input.timezone, userId: user.id, messageId: asked.id, ...(note ? { note } : {}) })) {
         if (closed) break; // ends the agent's work too
         if (event.type === "text") text += event.text;
         else if (event.type === "search") searches.push(event.query);
