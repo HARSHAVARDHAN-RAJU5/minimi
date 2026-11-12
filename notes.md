@@ -5,7 +5,7 @@ Source for DESIGN.md. Rewrite points in place; don't append logs. Keep it to abo
 A chat agent as good as online chat apps. Web search is its only tool. It remembers past
 conversations by date and topic, so it can answer "Last Tuesday I asked about X. Has it changed?"
 Users: busy founders and team leads who juggle many jobs (the same people minimi serves).
-Status: Phase 2 (saving chats) done: users, saved chats with dates, chat list, reopen chats.
+Status: Phase 3 (memory map) done: after each answer, the fast AI writes memory cards (things + dated facts with sources), code checks them, and a "What I remember" page shows them.
 
 ## Rules
 - JS/TS on Node. Runs with `npm install` then `npm run dev`.
@@ -28,12 +28,12 @@ Status: Phase 2 (saving chats) done: users, saved chats with dates, chat list, r
 - Users: type a name (no password; a stand-in for login on a local app). Every database read is filtered by user, so one user never sees another's chats.
 - Storage: built-in `node:sqlite`, kept only on the user's computer (no cloud database, like minimi). No native build, so `npm install` stays reliable.
 - Memory is code around the model, so web search stays the only tool.
-- Memory map: things (Neon, HubSpot) + links (chat → mentions → Neon) + facts with date and source. Stored as tables in the same SQLite file.
+- Memory map: things (name, kind, website, other names), mentions (chat → thing, with time), facts (value, source, checked time; old values kept). Written in the background after each finished answer that used search, by the fast AI ("card writer"). Code checks every card: the thing must be named in the chat, every number in a value must be in the answer, the source must be real. Failing cards are dropped and logged.
 - Speed: code builds the searches when it finds a product name in the question or the chat's note (under 1 ms). The AI planner (lite, 1–14 s) is the backup when code finds nothing, or always with SEARCH_MODE=planner. If the planner breaks, search the question as-is. Small talk (thanks/hi/ok) → no search at all. Planner: one round when its searches found something; dropped after 5 s → search the question as-is.
 - Chat note: the writer adds a hidden <note> {things, topic} at the end of each answer; the server cuts it out of the stream. Missing or broken → code builds it from the searches. Saved on the chat in the database; follow-ups load it from there.
 - Saving: the question is saved before answering (kept even if the answer fails); the answer after, with sources, searches, time zone and exact time. A cut-off answer is saved marked "stopped".
 - Seeding: pretend past chats with a "seed" label, for testing only. Same saving steps as real chats, deletable in one go. Real use starts empty.
-- Models: 3.8-flash writes answers (only 20 free requests/day; after a daily-quota refusal it's skipped until Google's reset time and lite writes). flash-lite is the backup planner. The "skip until" time is saved in the database (app_state table), so a restart doesn't waste a refused try.
+- Models: 3.8-flash writes answers (only 20 free requests/day; after a daily-quota refusal it's skipped until Google's reset time and lite writes). flash-lite is the backup planner. The "skip until" time is saved in the database (app_state table), so a restart doesn't waste a refused try. If the main writer sends nothing in 8 s, lite takes over and the main writer rests 5 min.
 - Way of working: small steps; test, then commit after each one; /notes at the last step of each phase; notes go into that step's commit.
 - Tests: Vitest. Quick tests use a fake Gemini (fast, free, same result every time); live tests use the real one, run now and then.
 - Server: Express + TypeScript run by tsx. Settings via Node's built-in .env loader (no extra library). The page opens even without a key; chatting shows a clear "add your key" message.
@@ -43,7 +43,7 @@ Status: Phase 2 (saving chats) done: users, saved chats with dates, chat list, r
 - Dates are a strict filter.
 - Every thing has a type ("Apollo (sales tool)" vs "Apollo (coding tool)").
 - Unsure → keep separate. Pick using date, words and source chat; if two still fit and disagree, ask the user.
-- Join copies only when sure (same website, or the user confirms).
+- Same thing or not: same name + same website or same kind → same. Different website or kind → different (two Apollos). Same website alone isn't enough (AWS RDS vs S3). A changed website with the same kind stays the same thing (Neon: neon.tech → neon.com). Unsure → kept apart, joined later when a website proves it.
 - Old and new facts are both kept, each with its date.
 - Nothing found → say so, never make it up.
 - A test list of tricky questions, checked after every change.
@@ -72,6 +72,7 @@ Their users are busy founders and team leads. These features show the agent fits
 ## Open questions
 - Final rule list: pending.
 - Writer prompt: make "as of" use the exact date (one answer said "October/November 2026").
+- Fact names vary between answers ("Pro plan price" vs "Pro plan base price"). Phase 4 must match close names, or the card writer prompt needs fixed names.
 - Re-run speed tests with 3.8 writing (normal vs less thinking), 3 runs each, at a quiet time.
 - Fresh test of code-built searches on 10 new chats. First test: code 10/10 vs AI planner 8/10, but the code was fixed against those same questions.
 
@@ -92,3 +93,5 @@ Their users are busy founders and team leads. These features show the agent fits
 - Fastest answer so far: 2.2 s to first word (code-built search + skipping 3.8 while its quota is used up).
 - User test (12 stories as a real user) found 7 small issues; 5 fixed the same day. Code tests alone didn't catch them.
 - Google's lite model sometimes breaks an answer midway (503 "high demand"); the partial answer is saved as stopped and the error is now logged.
+- The fact check first let a made-up "$2" through because the answer had the citation mark "[2]"; citation marks are now ignored.
+- 3.8 refused in under 1 s on a plain call but hung ~27 s on the streaming call the app uses. Measure the exact path the app uses.

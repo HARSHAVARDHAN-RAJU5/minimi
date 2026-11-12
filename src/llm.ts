@@ -88,44 +88,75 @@ export interface FallbackInfo { from: string; to: string; reason: string; daily:
 // After a daily-quota error it skips `primary` until Google's reset time, so no answer
 // waits for a refusal it already knows is coming.
 // `memory` keeps "skip until" across server restarts (e.g. saved in the database).
+export interface FallbackOptions {
+  now?: () => number;
+  memory?: { load(): number | undefined; save(until: number): void };
+  firstChunkMs?: number; // main model sends nothing for this long → switch to the backup
+  restMs?: number; // after "busy" or no reply: skip the main model this long (default 5 min)
+}
+
+export const DEFAULT_REST_MS = 5 * 60 * 1000;
+
 export function withFallback(
   primary: ChatModel,
   backup: ChatModel,
   onFallback: (info: FallbackInfo) => void = () => {},
-  now: () => number = Date.now,
-  memory?: { load(): number | undefined; save(until: number): void },
+  options: FallbackOptions = {},
 ): ChatModel {
-  let skipUntil = memory?.load() ?? 0;
+  const now = options.now ?? Date.now;
+  const restMs = options.restMs ?? DEFAULT_REST_MS;
+  let skipUntil = options.memory?.load() ?? 0;
+  let skipDaily = skipUntil > 0; // a saved skip time is always a used-up daily quota
   return {
     name: primary.name,
     async *stream(input) {
       if (now() < skipUntil) {
-        onFallback({ from: primary.name, to: backup.name, reason: "daily quota used up", daily: true, skipped: true, until: new Date(skipUntil) });
+        onFallback({
+          from: primary.name, to: backup.name, reason: skipDaily ? "daily quota used up" : "resting after busy",
+          daily: skipDaily, skipped: true, until: new Date(skipUntil),
+        });
         yield* backup.stream(input);
         return;
       }
       let sentAnything = false;
+      const it = primary.stream(input)[Symbol.asyncIterator]();
       try {
-        for await (const parts of primary.stream(input)) {
+        for (;;) {
+          const next = sentAnything || !options.firstChunkMs
+            ? await it.next()
+            : await firstChunk(it.next(), options.firstChunkMs);
+          if (next.done) return;
           sentAnything = true;
-          yield parts;
+          yield next.value;
         }
-        return;
       } catch (err) {
-        if (sentAnything || !isQuotaOrBusy(err)) throw err;
+        if (sentAnything || !(isQuotaOrBusy(err) || err instanceof NoReplyError)) throw err;
+        void it.return?.(); // stop waiting on the main model
         const daily = isDailyQuota(err);
-        if (daily) {
-          skipUntil = now() + retryAfterMs(err);
-          memory?.save(skipUntil);
-        }
+        skipDaily = daily;
+        skipUntil = now() + (daily ? retryAfterMs(err) : restMs);
+        if (daily) options.memory?.save(skipUntil);
         onFallback({
-          from: primary.name, to: backup.name, reason: errorText(err).slice(0, 200), daily, skipped: false,
-          ...(daily ? { until: new Date(skipUntil) } : {}),
+          from: primary.name, to: backup.name, reason: errorText(err).slice(0, 200), daily, skipped: false, until: new Date(skipUntil),
         });
       }
       yield* backup.stream(input);
     },
   };
+}
+
+// The main model said nothing in time.
+export class NoReplyError extends Error {
+  constructor(ms: number) { super(`no reply in ${Math.round(ms / 1000)} s`); }
+}
+
+async function firstChunk<T>(next: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([next, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new NoReplyError(ms)), ms); })]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Speed options (defaults = current behaviour). Used by the speed eval; the real agent

@@ -194,7 +194,7 @@ describe("writer remembers a used-up daily quota", () => {
     const main: ChatModel = { name: "smart", async *stream() { mainCalls++; throw daily; } };
     const backup = createFakeModel([[[fake.text("ok")]]], "lite");
     const infos: FallbackInfo[] = [];
-    const writer = withFallback(main, backup.model, (i) => infos.push(i), () => t);
+    const writer = withFallback(main, backup.model, (i) => infos.push(i), { now: () => t });
     const ask = () => run(createFakeModel([[[fake.text("x")]]]).model, writer, createFakeSearch().search);
 
     await ask(); // refused once → remembered
@@ -208,12 +208,23 @@ describe("writer remembers a used-up daily quota", () => {
     expect(mainCalls).toBe(2);
   });
 
-  it("does not skip after a short (per-minute) limit", async () => {
+  it("after a short limit or 'busy', rests the main writer for 5 minutes (not saved), then tries again", async () => {
+    let t = 0;
     let mainCalls = 0;
-    const main: ChatModel = { name: "smart", async *stream() { mainCalls++; throw new Error("429 RESOURCE_EXHAUSTED per minute"); } };
-    const writer = withFallback(main, createFakeModel([[[fake.text("ok")]]], "lite").model);
+    const saved: number[] = [];
+    const main: ChatModel = { name: "smart", async *stream() { mainCalls++; throw new Error("503 UNAVAILABLE high demand"); } };
+    const infos: FallbackInfo[] = [];
+    const writer = withFallback(main, createFakeModel([[[fake.text("ok")]]], "lite").model, (i) => infos.push(i), {
+      now: () => t, memory: { load: () => undefined, save: (u) => saved.push(u) },
+    });
     const ask = () => run(createFakeModel([[[fake.text("x")]]]).model, writer, createFakeSearch().search);
     await ask();
+    t += 4 * 60 * 1000;
+    await ask();
+    expect(mainCalls).toBe(1);
+    expect(infos.map((i) => [i.daily, i.skipped])).toEqual([[false, false], [false, true]]);
+    expect(saved).toEqual([]); // only a daily limit is saved across restarts
+    t += 2 * 60 * 1000;
     await ask();
     expect(mainCalls).toBe(2);
   });
@@ -230,7 +241,9 @@ describe("writer remembers a used-up daily quota", () => {
     const until = new Date(2026, 10, 12, 13, 30);
     expect(fallbackLine({ from: "a", to: "b", reason: "", daily: true, skipped: false, until })).toMatch(/writer fallback a → b \(daily quota used up; skipping it until .*(13|0?1).*30/);
     expect(fallbackLine({ from: "a", to: "b", reason: "", daily: true, skipped: true, until })).toMatch(/writer: skipping a \(daily quota used up until .*(13|0?1).*30.*\) → b/);
-    expect(fallbackLine({ from: "a", to: "b", reason: "", daily: false, skipped: false })).toBe("writer fallback a → b (quota or busy)");
+    expect(fallbackLine({ from: "a", to: "b", reason: "503", daily: false, skipped: false, until })).toMatch(/^writer fallback a → b \(quota or busy; skipping it until /);
+    expect(fallbackLine({ from: "a", to: "b", reason: "no reply in 8 s", daily: false, skipped: false, until })).toMatch(/^writer fallback a → b \(no reply in 8 s; skipping it until /);
+    expect(fallbackLine({ from: "a", to: "b", reason: "", daily: false, skipped: true, until })).toMatch(/^writer: skipping a \(resting after busy until /);
   });
 });
 
@@ -406,11 +419,41 @@ describe("writer remembers the used-up quota across restarts", () => {
     const backup = () => createFakeModel([[[fake.text("ok")]]], "lite").model;
     const ask = (writer: ChatModel) => run(createFakeModel([[[fake.text("x")]]]).model, writer, createFakeSearch().search);
 
-    await ask(withFallback(main, backup(), () => {}, () => 1000, memory));
+    await ask(withFallback(main, backup(), () => {}, { now: () => 1000, memory }));
     expect(saved).toBe(1000 + 60 * 60 * 1000);
 
-    const afterRestart = withFallback(main, backup(), () => {}, () => 2000, memory);
+    const afterRestart = withFallback(main, backup(), () => {}, { now: () => 2000, memory });
     await ask(afterRestart);
     expect(mainCalls).toBe(1); // not tried again
+  });
+});
+
+describe("writer: no reply in time", () => {
+  it("switches to the backup when the main writer sends nothing within the limit, then rests it", async () => {
+    let mainCalls = 0;
+    const hanging: ChatModel = {
+      name: "smart",
+      async *stream() { mainCalls++; await new Promise((r) => setTimeout(r, 2000)); yield [fake.text("too late")]; },
+    };
+    const infos: FallbackInfo[] = [];
+    const writer = withFallback(hanging, createFakeModel([[[fake.text("from backup")]]], "lite").model, (i) => infos.push(i), { firstChunkMs: 50 });
+    const ask = () => run(createFakeModel([[[fake.text("x")]]]).model, writer, createFakeSearch().search);
+
+    const start = Date.now();
+    expect(textOf(await ask())).toBe("from backup");
+    expect(Date.now() - start).toBeLessThan(1000);
+    expect(infos[0]).toMatchObject({ reason: "no reply in 0 s", daily: false, skipped: false });
+
+    await ask(); // resting: not tried again
+    expect(mainCalls).toBe(1);
+  });
+
+  it("a writer that starts in time is not cut off later", async () => {
+    const slowButStarted: ChatModel = {
+      name: "smart",
+      async *stream() { yield [fake.text("first ")]; await new Promise((r) => setTimeout(r, 120)); yield [fake.text("second")]; },
+    };
+    const writer = withFallback(slowButStarted, writerSays("backup").model, () => {}, { firstChunkMs: 50 });
+    expect(textOf(await run(createFakeModel([[[fake.text("x")]]]).model, writer, createFakeSearch().search))).toBe("first second");
   });
 });

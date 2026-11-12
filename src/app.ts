@@ -1,7 +1,7 @@
 import express from "express";
 import { fileURLToPath } from "node:url";
 import type { ChatFn } from "./agent.js";
-import { registerChatRoutes } from "./chats.js";
+import { registerChatRoutes, type RememberFn } from "./chats.js";
 import type { Db, User } from "./db.js";
 import { checkName, findOrCreateUser, requireUser } from "./users.js";
 
@@ -12,11 +12,11 @@ const vendorFiles: Record<string, string> = {
   "purify.js": fileURLToPath(new URL("../node_modules/dompurify/dist/purify.js", import.meta.url)),
 };
 
-export interface AppDeps { chat?: ChatFn; db?: Db }
+export interface AppDeps { chat?: ChatFn; db?: Db; remember?: RememberFn }
 
 // Builds the web app without starting it, so tests can run it on any free port
 // and plug in a fake chat and a temporary database.
-export function createApp({ chat, db }: AppDeps = {}) {
+export function createApp({ chat, db, remember }: AppDeps = {}) {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
 
@@ -43,7 +43,7 @@ export function createApp({ chat, db }: AppDeps = {}) {
     });
 
     // Asking (with saving), the chat list, opening a chat.
-    registerChatRoutes(app, { db, chat });
+    registerChatRoutes(app, { db, chat, remember });
   }
 
   app.get("/vendor/:file", (req, res) => {

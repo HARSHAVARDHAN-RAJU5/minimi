@@ -67,6 +67,30 @@ body {
   font-weight: 600;
 }
 .new-chat:hover { border-color: var(--accent); }
+.memory-link {
+  border: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.memory-link:hover, .memory-link.active { background: var(--user-bg); }
+
+/* "What I remember" page */
+.memory h1 { font-size: 22px; margin: 0 0 4px; }
+.memory > p { color: var(--muted); margin: 0 0 18px; font-size: 14px; }
+.thing { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; }
+.thing h2 { font-size: 16px; margin: 0; }
+.thing .meta { color: var(--muted); font-size: 13px; margin: 2px 0 8px; overflow-wrap: anywhere; }
+.thing table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.thing td { padding: 4px 8px 4px 0; vertical-align: top; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.thing td.field { color: var(--muted); width: 40%; }
+.thing td.when { color: var(--muted); font-size: 12px; white-space: nowrap; text-align: right; }
+.thing .seen { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.thing .seen a, .thing td a { color: var(--accent); text-decoration: none; }
+.thing td a { font-size: 12px; }
 .chat-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
 .chat-list h3 {
   margin: 12px 8px 4px;

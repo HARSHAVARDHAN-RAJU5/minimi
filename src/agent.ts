@@ -16,16 +16,19 @@ export function toContents(history: ChatTurn[] = []): Content[] {
   return history.map((t) => ({ role: t.role === "assistant" ? "model" : "user", parts: [{ text: t.text }] }));
 }
 
-export function fallbackLine({ from, to, daily, skipped, until }: FallbackInfo): string {
+export function fallbackLine({ from, to, reason, daily, skipped, until }: FallbackInfo): string {
   const time = until ? until.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-  if (skipped) return `writer: skipping ${from} (daily quota used up until ${time}) → ${to}`;
-  return `writer fallback ${from} → ${to} (${daily ? `daily quota used up; skipping it until ${time}` : "quota or busy"})`;
+  if (skipped) return `writer: skipping ${from} (${daily ? "daily quota used up" : "resting after busy"} until ${time}) → ${to}`;
+  const why = daily ? "daily quota used up" : /^no reply/.test(reason) ? reason : "quota or busy";
+  return `writer fallback ${from} → ${to} (${why}; skipping it until ${time})`;
 }
 
 // Small key/value memory kept across restarts (the database's app_state table).
 export interface AppState { getState(key: string): string | undefined; setState(key: string, value: string): void }
 
 export const PLANNER_TIMEOUT_MS = 5000;
+// The smart writer normally starts in ~3 s; when it's overloaded it can hang ~27 s before failing.
+export const WRITER_FIRST_CHUNK_MS = 8000;
 
 export function createAgent(config: Config, log: (line: string) => void = console.log, state?: AppState): ChatFn {
   // Built once on first use and kept, so the writer remembers a used-up daily quota between chats.
@@ -41,10 +44,13 @@ export function createAgent(config: Config, log: (line: string) => void = consol
       const smart = createGeminiModel(config.geminiApiKey!, config.geminiModel);
       parts = {
         planner: fast,
-        writer: withFallback(smart, fast, (info) => log(fallbackLine(info)), Date.now, state && {
+        writer: withFallback(smart, fast, (info) => log(fallbackLine(info)), {
+          firstChunkMs: WRITER_FIRST_CHUNK_MS,
           // Remember "smart model's daily quota is used up until …" across restarts.
-          load: () => Number(state.getState(`skip_until:${config.geminiModel}`)) || undefined,
-          save: (until) => state.setState(`skip_until:${config.geminiModel}`, String(until)),
+          memory: state && {
+            load: () => Number(state.getState(`skip_until:${config.geminiModel}`)) || undefined,
+            save: (until) => state.setState(`skip_until:${config.geminiModel}`, String(until)),
+          },
         }),
         search: webSearchFromConfig(config),
       };

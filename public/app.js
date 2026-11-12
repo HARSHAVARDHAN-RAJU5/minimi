@@ -150,6 +150,7 @@ async function loadChatList() {
 
 function markActive() {
   for (const a of chatList.querySelectorAll("a")) a.classList.toggle("active", a.getAttribute("href") === `#chat-${currentChatId}`);
+  $("open-memory").classList.remove("active");
 }
 
 function closeSidebar() {
@@ -242,6 +243,70 @@ async function openChat(id) {
   drawSavedMessages(messages);
   markActive();
   closeSidebar();
+}
+
+// --- What I remember ---------------------------------------------------------------
+
+function shortDate(iso) {
+  return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+async function openMemory() {
+  if (controller) return;
+  const res = await api("/api/memory");
+  if (res.status === 401) return forgetUser("Please pick your name again.");
+  const { things = [] } = await res.json().catch(() => ({}));
+  currentChatId = null;
+  history.replaceState(null, "", "#memory");
+  titleEl.textContent = "What I remember";
+  markActive();
+  $("open-memory").classList.add("active");
+  closeSidebar();
+
+  const page = el("section", "memory");
+  page.append(el("h1", null, "What I remember"));
+  page.append(el("p", null, things.length
+    ? "Facts from your chats, newest value first. Older values are kept too, so I can tell you what changed."
+    : "Nothing yet. Ask about products, prices or plans, and I'll remember the facts here."));
+
+  for (const t of things) {
+    const card = el("div", "thing");
+    card.append(el("h2", null, t.name));
+    const meta = [t.type, t.website, t.aliases?.length ? `also: ${t.aliases.join(", ")}` : ""].filter(Boolean).join(" · ");
+    if (meta) card.append(el("div", "meta", meta));
+    if (t.facts.length) {
+      const table = el("table");
+      for (const f of t.facts) {
+        const row = el("tr");
+        row.append(el("td", "field", f.field));
+        const value = el("td");
+        value.append(document.createTextNode(`${f.value} `));
+        if (f.sourceUrl) {
+          const a = el("a", null, "[source]");
+          a.href = f.sourceUrl;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          value.append(a);
+        }
+        row.append(value, el("td", "when", `checked ${shortDate(f.checkedAt)}`));
+        table.append(row);
+      }
+      card.append(table);
+    }
+    if (t.chats.length) {
+      const seen = el("div", "seen", "Talked about in: ");
+      t.chats.forEach((c, i) => {
+        if (i) seen.append(document.createTextNode(", "));
+        const a = el("a", null, `"${c.title}" (${shortDate(c.at)})`);
+        a.href = `#chat-${c.id}`;
+        seen.append(a);
+      });
+      card.append(seen);
+    }
+    page.append(card);
+  }
+  chat.replaceChildren(page);
+  chat.scrollTop = 0;
 }
 
 function newChat() {
@@ -360,6 +425,7 @@ input.addEventListener("input", () => {
 
 stopBtn.addEventListener("click", () => controller?.abort());
 $("new-chat").addEventListener("click", newChat);
+$("open-memory").addEventListener("click", openMemory);
 $("switch-user").addEventListener("click", () => {
   if (controller) return;
   forgetUser();
@@ -378,6 +444,7 @@ $("picker-form").addEventListener("submit", (e) => {
 window.addEventListener("hashchange", () => {
   const m = /^#chat-(\d+)$/.exec(location.hash);
   if (m && Number(m[1]) !== currentChatId) openChat(Number(m[1]));
+  else if (location.hash === "#memory") openMemory();
 });
 
 // --- Start ----------------------------------------------------------------------
@@ -387,6 +454,7 @@ async function start() {
   await loadChatList();
   const m = /^#chat-(\d+)$/.exec(location.hash);
   if (m) await openChat(Number(m[1]));
+  else if (location.hash === "#memory") await openMemory();
   else newChat();
 }
 

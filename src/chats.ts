@@ -7,6 +7,13 @@ import type { Chat, Db, Message, User } from "./db.js";
 import type { Source } from "./llm.js";
 import { requireUser } from "./users.js";
 
+// A finished answer, handed to the memory writer (runs in the background).
+export interface RememberJob {
+  userId: number; chatId: number; messageId: number; at: string;
+  question: string; answer: string; sources: Source[];
+}
+export type RememberFn = (job: RememberJob) => void;
+
 export const MAX_QUESTION_CHARS = 4000;
 export const MAX_HISTORY_TURNS = 20;
 export const MAX_TITLE_CHARS = 60;
@@ -47,13 +54,19 @@ export function toTurns(messages: Message[]): ChatTurn[] {
 
 const chatSummary = (c: Chat) => ({ id: c.id, title: c.title, createdAt: c.createdAt, updatedAt: c.updatedAt });
 
-export function registerChatRoutes(app: Express, { db, chat }: { db: Db; chat?: ChatFn }) {
+export function registerChatRoutes(app: Express, { db, chat, remember }: { db: Db; chat?: ChatFn; remember?: RememberFn }) {
   const guard = requireUser(db);
 
   // Your chats, newest first.
   app.get("/api/chats", guard, (_req, res) => {
     const user = res.locals.user as User;
     res.json({ chats: db.listChats(user.id).map(chatSummary) });
+  });
+
+  // What I remember: your things, the latest value of each fact, and the chats that talked about them.
+  app.get("/api/memory", guard, (_req, res) => {
+    const user = res.locals.user as User;
+    res.json({ things: memoryView(db, user.id) });
   });
 
   // One of your chats, with all its messages.
@@ -131,10 +144,37 @@ export function registerChatRoutes(app: Express, { db, chat }: { db: Db; chat?: 
     } finally {
       // 2) Save the answer (even a partial one, marked stopped) and the new note.
       if (text.trim()) {
-        db.addMessage(user.id, current.id, { role: "assistant", text, sources, searches, timezone: input.timezone, stopped: !finished });
+        const saved = db.addMessage(user.id, current.id, { role: "assistant", text, sources, searches, timezone: input.timezone, stopped: !finished });
+        // 3) In the background, write memory cards. Only for complete answers that used web search
+        //    (stopped answers, errors and small talk have no facts worth keeping).
+        if (remember && finished && searches.length > 0) {
+          remember({ userId: user.id, chatId: current.id, messageId: saved.id, at: saved.createdAt, question: input.question, answer: text, sources });
+        }
       }
       if (newNote) db.setChatNote(user.id, current.id, newNote);
       res.end();
     }
   });
+}
+
+// Builds the "What I remember" list: most recently talked-about things first.
+export function memoryView(db: Db, userId: number) {
+  const titles = new Map<number, string>();
+  const title = (chatId: number) => {
+    if (!titles.has(chatId)) titles.set(chatId, db.getChat(userId, chatId)?.title ?? "");
+    return titles.get(chatId)!;
+  };
+  return db.listThings(userId)
+    .map((t) => {
+      const mentions = db.listMentions(userId, t.id);
+      const chats = new Map<number, string>(); // chat → last time it talked about this thing
+      for (const m of mentions) chats.set(m.chatId, m.createdAt);
+      return {
+        id: t.id, name: t.name, type: t.type, website: t.website, aliases: t.aliases,
+        lastSeen: mentions.at(-1)?.createdAt ?? t.createdAt,
+        facts: db.latestFacts(userId, t.id).map((f) => ({ field: f.field, value: f.value, sourceUrl: f.sourceUrl, checkedAt: f.checkedAt })),
+        chats: [...chats].map(([id, at]) => ({ id, title: title(id), at })).reverse(),
+      };
+    })
+    .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen));
 }

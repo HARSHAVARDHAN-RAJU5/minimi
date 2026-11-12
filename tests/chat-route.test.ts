@@ -3,7 +3,7 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createApp } from "../src/app.js";
 import { createAgent, toContents, type ChatFn, type ChatInput } from "../src/agent.js";
-import { makeTitle, parseChatRequest, toTurns } from "../src/chats.js";
+import { makeTitle, parseChatRequest, toTurns, type RememberFn, type RememberJob } from "../src/chats.js";
 import { loadConfig } from "../src/config.js";
 import { Db } from "../src/db.js";
 import { answer, createFakeModel, fake, type AgentEvent } from "../src/llm.js";
@@ -19,9 +19,9 @@ afterEach(async () => {
 });
 
 // Starts the app with a temporary database and one user; returns helpers bound to that user.
-async function start(chat?: ChatFn) {
+async function start(chat?: ChatFn, remember?: RememberFn) {
   db = new Db(":memory:");
-  server = createApp({ chat, db }).listen(0);
+  server = createApp({ chat, db, remember }).listen(0);
   await new Promise<void>((resolve) => server!.once("listening", () => resolve()));
   const url = `http://localhost:${(server!.address() as AddressInfo).port}`;
   const alice = db.createUser("alice");
@@ -240,5 +240,71 @@ describe("helpers", () => {
     const turns = toTurns(msgs);
     expect(turns).toHaveLength(20);
     expect(turns.at(-1)).toEqual({ role: "user", text: "half\n\n(stopped early)" });
+  });
+});
+
+describe("memory writer after answers", () => {
+  it("runs after a finished answer that used web search, with the saved message's id and time", async () => {
+    const jobs: RememberJob[] = [];
+    const { ask, db, user } = await start(fakeChat(), (job) => jobs.push(job));
+    await (await ask({ question: "Neon price?" })).text();
+
+    const saved = db.listMessages(user.id, 1)[1];
+    expect(jobs).toEqual([{
+      userId: user.id, chatId: 1, messageId: saved.id, at: saved.createdAt,
+      question: "Neon price?", answer: "Neon is $19 [1].",
+      sources: [{ n: 1, title: "Neon pricing", url: "https://neon.tech/pricing" }],
+    }]);
+  });
+
+  it("does not run for answers without searches (small talk), broken answers, or stopped answers", async () => {
+    const jobs: RememberJob[] = [];
+    const noSearch: ChatFn = async function* () {
+      yield { type: "text", text: "You're welcome!" } as AgentEvent;
+      yield { type: "sources", sources: [] } as AgentEvent;
+      yield { type: "done" } as AgentEvent;
+    };
+    const s1 = await start(noSearch, (job) => jobs.push(job));
+    await (await s1.ask({ question: "thanks!" })).text();
+    expect(jobs).toEqual([]);
+    await new Promise<void>((resolve) => server!.close(() => resolve()));
+    db!.close();
+
+    const broken: ChatFn = async function* () {
+      yield { type: "search", query: "x" } as AgentEvent;
+      yield { type: "text", text: "partial" } as AgentEvent;
+      throw new Error("Gemini went away");
+    };
+    const s2 = await start(broken, (job) => jobs.push(job));
+    await (await s2.ask({ question: "q" })).text();
+    expect(jobs).toEqual([]);
+  });
+});
+
+describe("GET /api/memory", () => {
+  it("lists your things with the latest fact values and the chats that talked about them", async () => {
+    const { get, db, user, url } = await start(fakeChat());
+    const chat1 = db.createChat(user.id, "Postgres hosting");
+    const chat2 = db.createChat(user.id, "Neon again");
+    const neon = db.createThing(user.id, { name: "Neon", type: "Postgres hosting", website: "neon.tech" });
+    db.addMention(user.id, { thingId: neon.id, chatId: chat1.id, createdAt: "2026-11-03T09:00:00.000Z" });
+    db.addMention(user.id, { thingId: neon.id, chatId: chat2.id, createdAt: "2026-11-11T09:00:00.000Z" });
+    db.addFact(user.id, { thingId: neon.id, field: "Launch price", value: "$19/month", sourceUrl: "https://neon.tech/pricing", checkedAt: "2026-11-03T09:00:00.000Z" });
+    db.addFact(user.id, { thingId: neon.id, field: "Launch price", value: "$25/month", sourceUrl: "https://neon.tech/pricing", checkedAt: "2026-11-11T09:00:00.000Z" });
+    const old = db.createThing(user.id, { name: "Supabase" });
+    db.addMention(user.id, { thingId: old.id, chatId: chat1.id, createdAt: "2026-11-03T09:00:00.000Z" });
+
+    const { things } = await (await get("/api/memory")).json();
+    expect(things.map((t: { name: string }) => t.name)).toEqual(["Neon", "Supabase"]); // most recent first
+    expect(things[0]).toMatchObject({
+      type: "Postgres hosting", website: "neon.tech", lastSeen: "2026-11-11T09:00:00.000Z",
+      facts: [{ field: "Launch price", value: "$25/month", sourceUrl: "https://neon.tech/pricing", checkedAt: "2026-11-11T09:00:00.000Z" }],
+      chats: [{ id: chat2.id, title: "Neon again", at: "2026-11-11T09:00:00.000Z" }, { id: chat1.id, title: "Postgres hosting", at: "2026-11-03T09:00:00.000Z" }],
+    });
+
+    // Another user sees nothing, and it needs a user.
+    const bob = as(url, db.createUser("bob").id);
+    expect((await (await bob.get("/api/memory")).json()).things).toEqual([]);
+    expect((await fetch(`${url}/api/memory`)).status).toBe(401);
   });
 });
