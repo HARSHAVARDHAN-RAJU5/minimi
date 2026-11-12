@@ -7,7 +7,7 @@ import type { ChatNote } from "./context.js";
 import type { Source } from "./llm.js";
 
 import { DEFAULT_DB_PATH } from "./config.js";
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 export interface User { id: number; name: string; createdAt: string }
 export interface Chat { id: number; userId: number; title: string; note?: ChatNote; seed?: boolean; createdAt: string; updatedAt: string }
@@ -38,7 +38,7 @@ export interface NewFact { thingId: number; field: string; value: string; source
 // An open loop: something the user started but hasn't finished, e.g. "pick one of these 5 CRMs".
 export interface Loop {
   id: number; chatId: number; text: string; things: string[];
-  status: "open" | "closed"; choice?: string; openedAt: string; closedAt?: string; closedInChatId?: number;
+  status: "open" | "closed"; choice?: string; reason?: string; openedAt: string; closedAt?: string; closedInChatId?: number;
 }
 
 export interface NewMessage {
@@ -145,7 +145,8 @@ CREATE TABLE IF NOT EXISTS loops (
   choice             TEXT,                          -- what was picked, if anything
   opened_at          TEXT NOT NULL,
   closed_at          TEXT,
-  closed_in_chat_id  INTEGER REFERENCES chats(id) ON DELETE SET NULL
+  closed_in_chat_id  INTEGER REFERENCES chats(id) ON DELETE SET NULL,
+  reason             TEXT                           -- why, if the user said (e.g. "it's cheaper")
 );
 CREATE INDEX IF NOT EXISTS loops_by_user_status ON loops(user_id, status, opened_at);
 `;
@@ -167,6 +168,9 @@ export class Db {
       if (!columns.includes("seed")) this.db.exec("ALTER TABLE chats ADD COLUMN seed INTEGER NOT NULL DEFAULT 0");
     }
     this.db.exec(SCHEMA);
+    // Older database: loops existed before they had a reason column.
+    const loopColumns = (this.db.prepare("PRAGMA table_info(loops)").all() as Row[]).map((c) => String(c.name));
+    if (!loopColumns.includes("reason")) this.db.exec("ALTER TABLE loops ADD COLUMN reason TEXT");
     // Older database: fill the new search index with the messages saved before it existed.
     if (before > 0 && before < 3) this.db.exec("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')");
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -218,11 +222,18 @@ export class Db {
   }
 
   // Closes a loop: with what was picked (if anything) and where it was decided.
-  closeLoop(userId: number, loopId: number, close: { choice?: string; chatId?: number; at?: string } = {}): boolean {
+  closeLoop(userId: number, loopId: number, close: { choice?: string; reason?: string; chatId?: number; at?: string } = {}): boolean {
     const { changes } = this.db
-      .prepare("UPDATE loops SET status = 'closed', choice = ?, closed_at = ?, closed_in_chat_id = ? WHERE id = ? AND user_id = ? AND status = 'open'")
-      .run(close.choice ?? null, close.at ?? this.stamp(), close.chatId ?? null, loopId, userId);
+      .prepare("UPDATE loops SET status = 'closed', choice = ?, reason = ?, closed_at = ?, closed_in_chat_id = ? WHERE id = ? AND user_id = ? AND status = 'open'")
+      .run(close.choice ?? null, close.reason ?? null, close.at ?? this.stamp(), close.chatId ?? null, loopId, userId);
     return Number(changes) > 0;
+  }
+
+  // The decision log: closed loops where the user picked something, newest first.
+  listDecisions(userId: number): Loop[] {
+    return (this.db
+      .prepare("SELECT * FROM loops WHERE user_id = ? AND status = 'closed' AND choice IS NOT NULL ORDER BY closed_at DESC, id DESC")
+      .all(userId) as Row[]).map(toLoop);
   }
 
   // --- Users -----------------------------------------------------------------
@@ -486,6 +497,7 @@ function toLoop(r: Row): Loop {
   return {
     id: Number(r.id), chatId: Number(r.chat_id), text: String(r.text), things: safeJson<string[]>(String(r.things)) ?? [],
     status: r.status === "closed" ? "closed" : "open", ...(r.choice ? { choice: String(r.choice) } : {}),
+    ...(r.reason ? { reason: String(r.reason) } : {}),
     openedAt: String(r.opened_at), ...(r.closed_at ? { closedAt: String(r.closed_at) } : {}),
     ...(r.closed_in_chat_id ? { closedInChatId: Number(r.closed_in_chat_id) } : {}),
   };

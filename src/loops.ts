@@ -34,9 +34,16 @@ export function choiceIn(question: string, loop: Loop): string | undefined {
   return loop.things.find((t) => named.includes(normalName(t)));
 }
 
+// Why, if the user said: "we went with Pipedrive because it's cheaper" → "it's cheaper".
+export function reasonIn(question: string): string | undefined {
+  const m = /\b(?:because|since|as|due to|for)\s+(.+)/i.exec(DECIDED.exec(question)?.[1] ?? "");
+  const reason = m?.[1].split(/[.!?;]/)[0].replace(/\s+/g, " ").trim();
+  return reason && reason.split(" ").length >= 2 ? reason.slice(0, 120) : undefined;
+}
+
 const loopText = (things: string[]) => `Pick one: ${things.join(", ")}`;
 
-export interface LoopUpdate { opened?: Loop; updated?: Loop; closed: Array<{ loop: Loop; choice?: string }> }
+export interface LoopUpdate { opened?: Loop; updated?: Loop; closed: Array<{ loop: Loop; choice?: string; reason?: string }> }
 
 // After each question: close loops the user decided, or open/extend one for a new choice.
 export function updateLoops(db: Db, userId: number, turn: { chatId: number; question: string; things: string[]; at?: string }): LoopUpdate {
@@ -46,8 +53,9 @@ export function updateLoops(db: Db, userId: number, turn: { chatId: number; ques
   // 1) A decision closes every open loop that has the picked option.
   for (const loop of open) {
     const choice = choiceIn(turn.question, loop);
-    if (choice && db.closeLoop(userId, loop.id, { choice, chatId: turn.chatId, at: turn.at })) {
-      result.closed.push({ loop, choice });
+    const reason = choice ? reasonIn(turn.question) : undefined;
+    if (choice && db.closeLoop(userId, loop.id, { choice, reason, chatId: turn.chatId, at: turn.at })) {
+      result.closed.push({ loop, choice, ...(reason ? { reason } : {}) });
     }
   }
   if (result.closed.length) return result;

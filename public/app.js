@@ -297,7 +297,7 @@ async function openMemory() {
   if (controller) return;
   const res = await api("/api/memory");
   if (res.status === 401) return forgetUser("Please pick your name again.");
-  const { things = [] } = await res.json().catch(() => ({}));
+  const { things = [], decisions = [] } = await res.json().catch(() => ({}));
   currentChatId = null;
   history.replaceState(null, "", "#memory");
   titleEl.textContent = "What I remember";
@@ -310,6 +310,27 @@ async function openMemory() {
   page.append(el("p", null, things.length
     ? "Facts from your chats, newest value first. Older values are kept too, so I can tell you what changed."
     : "Nothing yet. Ask about products, prices or plans, and I'll remember the facts here."));
+
+  // Decision log: what you picked, over what, when and why.
+  if (decisions.length) {
+    const box = el("div", "thing decisions");
+    box.append(el("h2", null, "Decisions"));
+    const list = el("ul");
+    for (const d of decisions) {
+      const li = el("li");
+      li.append(el("strong", null, d.choice));
+      li.append(document.createTextNode(`${d.ruledOut.length ? ` over ${d.ruledOut.join(", ")}` : ""}${d.reason ? `, because ${d.reason}` : ""} `));
+      const when = el("span", "when-inline", `(${shortDate(d.decidedAt)})`);
+      if (d.chatId) {
+        const a = el("a", null, `(${shortDate(d.decidedAt)})`);
+        a.href = `#chat-${d.chatId}`;
+        li.append(a);
+      } else li.append(when);
+      list.append(li);
+    }
+    box.append(list);
+    page.append(box);
+  }
 
   for (const t of things) {
     const card = el("div", "thing");

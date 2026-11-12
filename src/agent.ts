@@ -6,6 +6,7 @@ import type { Db } from "./db.js";
 import { answer, createGeminiModel, withFallback, type AgentEvent, type AnswerInput, type ChatModel, type FallbackInfo } from "./llm.js";
 import { plannerPrompt, writerPrompt } from "./prompts.js";
 import { memoryBlock, memorySearches, recall, recallSummary } from "./recall.js";
+import { decisionsBlock, decisionsFor } from "./decisions.js";
 import { oldFactsFor, stillTrueBlock } from "./stilltrue.js";
 import { webSearchFromConfig, type WebSearch } from "./search.js";
 
@@ -89,9 +90,11 @@ export function createAgent(
       const queries = memorySearches(rec, question);
       const nothingToCheck = rec.status === "none" || (rec.hasTopic && !rec.topicMatched);
       log(`path: memory → ${queries.length ? queries.join(" | ") : nothingToCheck ? "no search" : "planner"}`);
+      const decided = decisionsFor(db as Db, userId!, question);
+      if (decided.length) log(`decisions: ${decided.map((d) => d.choice).join(", ")}`);
       yield* answer({
         ...common,
-        memory: memoryBlock(rec, timezone),
+        memory: [memoryBlock(rec, timezone), decisionsBlock(decided, timezone)].filter(Boolean).join("\n\n"),
         options: { presetQueries: queries, noSearch: nothingToCheck, plannerTimeoutMs: PLANNER_TIMEOUT_MS, withNote: true },
       });
       return;
@@ -105,10 +108,13 @@ export function createAgent(
     // those old values, so it can mention a change (and stay quiet if nothing changed).
     const oldFacts = db?.listThings && userId && route.path !== "none" ? oldFactsFor(db as Db, userId, question) : [];
     if (oldFacts.length) log(`still true?: ${oldFacts.length} old facts (${[...new Set(oldFacts.map((f) => f.thing))].join(", ")})`);
+    // Decision log: the user already picked between these options → build on it, don't re-suggest the rest.
+    const decided = db?.listDecisions && userId && route.path !== "none" ? decisionsFor(db as Db, userId, question) : [];
+    if (decided.length) log(`decisions: ${decided.map((d) => d.choice).join(", ")}`);
 
     yield* answer({
       ...common,
-      memory: stillTrueBlock(oldFacts, timezone),
+      memory: [stillTrueBlock(oldFacts, timezone), decisionsBlock(decided, timezone)].filter(Boolean).join("\n\n") || undefined,
       options: { presetQueries: route.queries, noSearch: route.path === "none", plannerTimeoutMs: PLANNER_TIMEOUT_MS, withNote: true },
     });
   };

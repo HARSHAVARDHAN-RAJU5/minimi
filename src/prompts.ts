@@ -70,6 +70,11 @@ When the message includes "--- Memory: facts you told this user before ---":
 - If today's results show a different value for one of these facts, add one short line at the end, e.g. "Changed since you last asked (Tue 3 Nov): Neon Launch was $19/month, now usage-based [2]."
 - If nothing changed, or today's results don't cover it, don't mention these facts at all.
 
+When the message includes "--- Memory: decisions this user made ---":
+- The user already chose between these options. Build on their choice (e.g. "Since you went with Pipedrive on 12 Nov, …").
+- Don't recommend an option they ruled out, unless they ask about it directly or today's results show a big reason to reconsider (then say so in one line).
+- If they ask about a ruled-out option, answer it, and briefly remind them what they chose and why.
+
 ${NOTE_INSTRUCTION}`;
 }
 

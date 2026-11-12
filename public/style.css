@@ -90,6 +90,10 @@ body {
 .thing td.when { color: var(--muted); font-size: 12px; white-space: nowrap; text-align: right; }
 .thing .seen { font-size: 13px; color: var(--muted); margin-top: 8px; }
 .thing .seen a, .thing td a { color: var(--accent); text-decoration: none; }
+.decisions { border-left: 3px solid var(--accent); }
+.decisions ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+.decisions li { margin: 3px 0; }
+.decisions a, .decisions .when-inline { color: var(--muted); font-size: 12px; text-decoration: none; }
 .thing td a { font-size: 12px; }
 .chat-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
 .chat-list h3 {

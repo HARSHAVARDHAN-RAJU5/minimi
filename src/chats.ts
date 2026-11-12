@@ -5,6 +5,7 @@ import type { ChatFn, ChatTurn } from "./agent.js";
 import type { ChatNote } from "./context.js";
 import type { Chat, Db, Message, User } from "./db.js";
 import type { Source } from "./llm.js";
+import { toDecision } from "./decisions.js";
 import { updateLoops } from "./loops.js";
 import { requireUser } from "./users.js";
 
@@ -89,7 +90,7 @@ export function registerChatRoutes(app: Express, { db, chat, remember }: { db: D
   // What I remember: your things, the latest value of each fact, and the chats that talked about them.
   app.get("/api/memory", guard, (_req, res) => {
     const user = res.locals.user as User;
-    res.json({ things: memoryView(db, user.id) });
+    res.json({ things: memoryView(db, user.id), decisions: db.listDecisions(user.id).map((l) => ({ ...toDecision(l), id: l.id })) });
   });
 
   // One of your chats, with all its messages.
@@ -180,7 +181,7 @@ export function registerChatRoutes(app: Express, { db, chat, remember }: { db: D
         const loops = updateLoops(db, user.id, { chatId: current.id, question: input.question, things: newNote?.things ?? note?.things ?? [] });
         if (loops.opened) console.log(`loop opened: ${loops.opened.text}`);
         if (loops.updated) console.log(`loop updated: ${loops.updated.text}`);
-        for (const c of loops.closed) console.log(`loop closed: ${c.loop.text} → ${c.choice}`);
+        for (const c of loops.closed) console.log(`loop closed: ${c.loop.text} → ${c.choice}${c.reason ? ` (because ${c.reason})` : ""}`);
       } catch (err) {
         console.warn(`loops: ${err instanceof Error ? err.message : err}`);
       }
