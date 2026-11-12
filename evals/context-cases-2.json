@@ -1,0 +1,165 @@
+{
+  "createdAt": "2026-11-12T04:23:26.438Z",
+  "cases": [
+    {
+      "name": "vercel-pricing",
+      "first": "how much does vercel pro cost per month?",
+      "second": "is it cheaper than netlify?",
+      "must": [
+        [
+          "netlify"
+        ],
+        [
+          "pric",
+          "cost",
+          "plan",
+          "tier"
+        ]
+      ]
+    },
+    {
+      "name": "supabase-features",
+      "first": "does supabase have built in vector search?",
+      "second": "what about auth capabilities?",
+      "must": [
+        [
+          "supabase"
+        ],
+        [
+          "auth",
+          "authentication",
+          "login",
+          "user"
+        ]
+      ]
+    },
+    {
+      "name": "posthog-leadership",
+      "first": "who founded posthog?",
+      "second": "who runs it now?",
+      "must": [
+        [
+          "posthog"
+        ],
+        [
+          "ceo",
+          "founder",
+          "lead",
+          "current",
+          "executive"
+        ]
+      ]
+    },
+    {
+      "name": "linear-integration",
+      "first": "does linear integrate with github?",
+      "second": "and gitlab?",
+      "must": [
+        [
+          "linear"
+        ],
+        [
+          "gitlab",
+          "integration",
+          "connect"
+        ]
+      ]
+    },
+    {
+      "name": "resend-email",
+      "first": "what is the free tier for resend email API?",
+      "second": "does it support inbound emails yet?",
+      "must": [
+        [
+          "resend"
+        ],
+        [
+          "inbound",
+          "receive",
+          "incoming",
+          "webhook"
+        ]
+      ]
+    },
+    {
+      "name": "raycast-ext",
+      "first": "can you write extensions for raycast using typescript?",
+      "second": "what about python?",
+      "must": [
+        [
+          "raycast"
+        ],
+        [
+          "python",
+          "script"
+        ]
+      ]
+    },
+    {
+      "name": "stripe-billing",
+      "first": "what are stripe's standard processing fees for US cards?",
+      "second": "what about international cards?",
+      "must": [
+        [
+          "stripe"
+        ],
+        [
+          "international",
+          "cross",
+          "card",
+          "fee",
+          "percent"
+        ]
+      ]
+    },
+    {
+      "name": "notion-ai",
+      "first": "how much is notion ai as an add-on?",
+      "second": "is it included in the enterprise plan?",
+      "must": [
+        [
+          "notion"
+        ],
+        [
+          "enterprise",
+          "included",
+          "plan"
+        ]
+      ]
+    },
+    {
+      "name": "github-copilot",
+      "first": "how much does github copilot cost for individuals?",
+      "second": "which one is best for our startup team instead?",
+      "must": [
+        [
+          "github",
+          "copilot"
+        ],
+        [
+          "business",
+          "enterprise",
+          "team",
+          "organization"
+        ]
+      ]
+    },
+    {
+      "name": "mixpanel-analytics",
+      "first": "does mixpanel have a free tier?",
+      "second": "what is the event limit on it?",
+      "must": [
+        [
+          "mixpanel"
+        ],
+        [
+          "event",
+          "limit",
+          "quota",
+          "monthly",
+          "track"
+        ]
+      ]
+    }
+  ]
+}
