@@ -66,6 +66,25 @@ describe("calendar dates", () => {
     expect(r("on 3 November 2025")?.from).toBe("2025-11-02T18:30:00.000Z");
   });
 
+  it("'the 3rd' / 'since the 10th' / 'tuesday the 3rd': a day of this month, and it wins over a weekday", () => {
+    expect(label("what did i ask on the 3rd")).toBe("Tue 3 Nov");
+    expect(label("any updates since the 10th?")).toBe("Tue 10 Nov");
+    expect(label("what did i ask you on tuesday the 3rd")).toBe("Tue 3 Nov");
+    expect(label("back on Monday the 9th")).toBe("Mon 9 Nov");
+    expect(label("on the 25th")).toBe("Sun 25 Oct"); // hasn't come yet this month → last month
+    expect(r("for the 20 users")).toBeUndefined(); // a plain number is not a date
+  });
+
+  it("numbers written as words: 'the third of November', 'the twenty-first'", () => {
+    expect(label("what I asked you on the third of November")).toBe("Tue 3 Nov");
+    expect(label("third of nov")).toBe("Tue 3 Nov");
+    expect(label("on the ninth")).toBe("Mon 9 Nov");
+    expect(label("on the twenty-first of October")).toBe("Wed 21 Oct");
+    expect(r("the first time I asked")).toBeUndefined(); // a noun follows: not a date
+    expect(r("what was the third option?")).toBeUndefined();
+    expect(r("a second opinion please")).toBeUndefined();
+  });
+
   it("ignores impossible dates", () => {
     expect(r("on 31 November")).toBeUndefined();
   });

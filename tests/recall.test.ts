@@ -119,16 +119,32 @@ describe("tricky cases", () => {
     expect(r.reason).toBe("found 1 chat on Tue 3 Nov (a week earlier)");
   });
 
-  it("nothing on the topic → 'none', with what was talked about that day instead", () => {
+  it("nothing on the topic that day → that day's chats, marked 'topic not matched'", () => {
     const r = ask("Last Tuesday I asked about Kubernetes")!;
-    expect(r.status).toBe("none");
-    expect(r.otherChatsInRange.map((c) => c.id).sort()).toEqual([ids.nextjs, ids.postgres10].sort());
-    expect(r.reason).toBe("no chat on Tue 10 Nov about kubernetes");
+    expect(r).toMatchObject({ status: "found", topicMatched: false, usedWeekEarlier: false });
+    expect(r.chats.map((c) => c.chat.id).sort()).toEqual([ids.nextjs, ids.postgres10].sort());
+    expect(r.reason).toBe("found 2 chats on Tue 10 Nov (none about the topic; showing that day's chats)");
+  });
+
+  it("leftover everyday words can't hide the chat ('that question I asked back on Nov 3')", () => {
+    for (const q of [
+      "Hey, what was that question I asked you back on Nov 3? Is the answer still right?",
+      "Could you please tell me what query I submitted to you on November 3rd, and whether your response remains accurate?",
+      "rememebr what i asked on the 3rd? still true?",
+    ]) {
+      const r = ask(q)!;
+      expect(r.status).toBe("found");
+      expect(r.chats.map((c) => c.chat.id)).toEqual([ids.postgres3]);
+    }
+  });
+
+  it("a topic that matches keeps topicMatched true", () => {
+    expect(ask("Last Tuesday I asked you about Postgres hosting")!.topicMatched).toBe(true);
   });
 
   it("a day with no chats at all → 'none'", () => {
     const r = ask("What did I ask you yesterday?")!;
-    expect(r).toMatchObject({ status: "none", otherChatsInRange: [] });
+    expect(r).toMatchObject({ status: "none", chats: [] });
   });
 
   it("no date: finds the chats on the topic, most relevant first", () => {
@@ -153,7 +169,7 @@ describe("tricky cases", () => {
   it("never finds another user's chats", () => {
     const bob = db.createUser("bob").id;
     const r = ask("What did I ask you on 3 November?", { userId: bob })!;
-    expect(r).toMatchObject({ status: "none", chats: [], otherChatsInRange: [] });
+    expect(r).toMatchObject({ status: "none", chats: [] });
     expect(thingsInQuestion(db, bob, "Postgres hosting")).toEqual([]);
   });
 });

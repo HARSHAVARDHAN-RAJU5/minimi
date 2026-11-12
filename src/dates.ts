@@ -77,7 +77,7 @@ function rangeOfDays(first: Ymd, days: number, tz: string, phrase: string): Date
 // Finds the first date phrase in the question and turns it into a range. Undefined if there is none.
 export function findDateRange(question: string, now: Date = new Date(), timeZone?: string): DateRange | undefined {
   const tz = validZone(timeZone);
-  const q = question.toLowerCase().replace(/[’']/g, "'");
+  const q = ordinalWordsToNumbers(question.toLowerCase().replace(/[’']/g, "'"));
   const today = localDate(now, tz);
   const one = (day: Ymd, phrase: string) => rangeOfDays(day, 1, tz, phrase);
 
@@ -99,6 +99,15 @@ export function findDateRange(question: string, now: Date = new Date(), timeZone
     if (!m[3] && (month > today.m || (month === today.m && d > today.d))) y -= 1;
     const day = { y, m: month, d };
     if (validDay(day)) return one(day, m[0].trim());
+  }
+
+  // "the 3rd", "on the 10th", "since the 10th", "tuesday the 3rd": a day of this month,
+  // or of last month if that day hasn't come yet. Checked before weekdays, so "tuesday the 3rd" = the 3rd.
+  m = /\bthe (\d{1,2})(?:st|nd|rd|th)\b/.exec(q);
+  if (m) {
+    const d = Number(m[1]);
+    const day = d <= today.d ? { y: today.y, m: today.m, d } : addMonths({ y: today.y, m: today.m, d }, -1);
+    if (validDay(day)) return one(day, m[0]);
   }
 
   if ((m = /\b(day before yesterday)\b/.exec(q))) return one(addDays(today, -2), m[1]);
@@ -134,6 +143,39 @@ export function findDateRange(question: string, now: Date = new Date(), timeZone
   }
 
   return undefined;
+}
+
+function addMonths({ y, m, d }: Ymd, n: number): Ymd {
+  const total = y * 12 + (m - 1) + n;
+  return { y: Math.floor(total / 12), m: (total % 12) + 1, d };
+}
+
+// "the third of November" → "the 3rd of november". Only after "the" or before "of",
+// so "first time" or "a second" are left alone.
+const ORDINALS = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth",
+  "eleventh", "twelfth", "thirteenth", "fourteenth", "fifteenth", "sixteenth", "seventeenth", "eighteenth", "nineteenth", "twentieth"];
+function ordinalNumber(word: string): number | undefined {
+  const w = word.replace(/-/g, " ").trim();
+  const i = ORDINALS.indexOf(w);
+  if (i >= 0) return i + 1;
+  const m = /^(twenty|thirty) (\w+)$/.exec(w);
+  if (!m) return w === "thirtieth" ? 30 : undefined;
+  const unit = ORDINALS.indexOf(m[2]);
+  if (unit < 0 || unit > 8) return undefined;
+  const n = (m[1] === "twenty" ? 20 : 30) + unit + 1;
+  return n <= 31 ? n : undefined;
+}
+function ordinalWordsToNumbers(q: string): string {
+  const word = "((?:twenty|thirty)[ -])?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth)";
+  const swap = (_: string, before: string, tens: string | undefined, unit: string, after: string) => {
+    const n = ordinalNumber(`${tens ?? ""}${unit}`);
+    return n ? `${before}${n}th${after}` : `${before}${tens ?? ""}${unit}${after}`;
+  };
+  // Not when a noun follows: "the first time", "the second one", "the third question".
+  const notNoun = "(?!\\s+(?:time|times|one|ones|thing|things|step|place|option|options|question|answer|chat|try|attempt|plan|tool|item)\\b)";
+  return q
+    .replace(new RegExp(`(\\bthe )${word}${notNoun}(\\b)`, "g"), swap)
+    .replace(new RegExp(`(\\b)${word}( of\\b)`, "g"), swap);
 }
 
 // "Nov 3, 2026" matched as (month, day, year) → reorder to (day, month, year) like the other pattern.

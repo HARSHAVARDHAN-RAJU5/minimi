@@ -4,13 +4,14 @@
 //    fixed pretend history. 3. Score + every miss is printed.
 // Run: npm run eval:recall            (uses the saved wordings if they exist)
 //      npm run eval:recall -- --new   (asks the AI for a fresh set)
+//      add --file=evals/other.json to use / save a separate set
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { loadConfig, loadEnvFile, requireGeminiKey } from "../src/config.js";
 import { Db } from "../src/db.js";
 import { createGeminiModel, isQuotaOrBusy } from "../src/llm.js";
 import { recall } from "../src/recall.js";
 
-const WORDINGS_FILE = "evals/recall-wordings.json";
+const WORDINGS_FILE = process.argv.find((a) => a.startsWith("--file="))?.slice(7) ?? "evals/recall-wordings.json";
 const now = new Date("2026-11-12T03:00:00.000Z"); // Thursday 12 Nov 2026, 08:30 in India
 const timezone = "Asia/Kolkata";
 

@@ -24,7 +24,9 @@ export interface Recall {
   topic: string[]; // topic words from the question
   matchedThings: Thing[]; // remembered things the question is about
   chats: RecalledChat[]; // best first
-  otherChatsInRange: Chat[]; // when nothing on the topic: what was talked about on those days instead
+  // false = there was a date, nothing that day matched the topic words, so these are simply
+  // all the chats from that day ("you didn't ask about X then; you asked about …").
+  topicMatched: boolean;
   reason: string; // for the log
 }
 
@@ -51,6 +53,11 @@ const NOT_TOPIC = new Set([
   "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
   "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec", "st", "nd", "rd", "th",
   "please", "again", "also", "just", "really", "some", "one", "ones", "tool", "tools", "thing", "things",
+  // everyday words about the chat itself, not its topic
+  "hey", "hi", "hello", "question", "questions", "query", "queries", "response", "responses", "reply", "replies", "info", "information",
+  "submit", "submitted", "gave", "give", "given", "got", "get", "see", "back", "good", "ok", "okay", "hold", "holds", "up", "work", "works",
+  "whether", "remain", "remains", "applicable", "relevant", "trying", "recall", "recap", "remind", "half", "few", "couple", "u", "ur", "pls",
+  "same", "different", "new", "update", "updates", "updated", "current", "currently", "latest",
 ]);
 
 export function isMemoryQuestion(question: string, now?: Date, timezone?: string): boolean {
@@ -124,12 +131,24 @@ export function recall(db: Db, userId: number, question: string, opts: RecallOpt
     }
   }
 
-  const base = { range, usedWeekEarlier, topic, matchedThings };
+  // Safety rule: a date was given, nothing that day was about the topic words, but there were chats
+  // that day → show those (marked "topic not matched") instead of "nothing found". Leftover everyday
+  // words ("what was that thing I asked on the 3rd?") then can't hide the chat.
+  let topicMatched = hasTopic;
+  if (range && found.picked.length === 0) {
+    const sameDay = lookIn(range);
+    if (sameDay.chatIds.length > 0) {
+      found = { ...sameDay, picked: sameDay.chatIds.map((id) => ({ id, score: 1 })) };
+      usedWeekEarlier = false;
+      topicMatched = false;
+    }
+  }
+
+  const base = { range, usedWeekEarlier, topic, matchedThings, topicMatched };
   if (found.picked.length === 0) {
-    const otherChatsInRange = range ? found.chatIds.map((id) => db.getChat(userId, id)!).filter(Boolean) : [];
     const where = range ? `on ${range.label}` : "in your saved chats";
     const about = hasTopic ? ` about ${[...matchedThings.map((t) => t.name), ...topic].slice(0, 4).join(", ")}` : "";
-    return { status: "none", ...base, chats: [], otherChatsInRange, reason: `no chat ${where}${about}` };
+    return { status: "none", ...base, chats: [], reason: `no chat ${where}${about}` };
   }
 
   // Best score first; on a tie, the most recent chat first.
@@ -151,6 +170,7 @@ export function recall(db: Db, userId: number, question: string, opts: RecallOpt
     return { chat, when: timeLabel(messages[0]?.createdAt ?? chat.createdAt, timezone), messages, things, facts };
   });
 
-  const reason = `found ${chats.length} chat${chats.length > 1 ? "s" : ""}${searched ? ` on ${searched.label}` : ""}${usedWeekEarlier ? " (a week earlier)" : ""}`;
-  return { status: "found", ...base, chats, otherChatsInRange: [], reason };
+  const reason = `found ${chats.length} chat${chats.length > 1 ? "s" : ""}${searched ? ` on ${searched.label}` : ""}`
+    + `${usedWeekEarlier ? " (a week earlier)" : ""}${hasTopic && !topicMatched ? " (none about the topic; showing that day's chats)" : ""}`;
+  return { status: "found", ...base, chats, reason };
 }

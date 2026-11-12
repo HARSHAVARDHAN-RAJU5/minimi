@@ -1,0 +1,42 @@
+{
+  "createdAt": "2026-11-12T03:37:47.493Z",
+  "model": "gemini-3.5-flash-lite",
+  "sets": {
+    "crm": [
+      "did any of those 5 crm options we shortlisted for the sales team on monday change their pricing or release major updates recently?",
+      "Hey, on the 9th we picked 5 CRMs for our 20 person sales squad. Have any of them updated prices or dropped big features since then?",
+      "Check CRM updates for the 5 systems we looked at Monday for the sales dept—did any raise prices or ship something major?",
+      "Remember those 5 CRMs we shortlisted this past Monday? Any price changes or big new features from them?",
+      "has there been any major product updates or price changes from the five crms we shortlisted on monday?",
+      "Curious if any of the 5 CRM tools we shortlisted on Nov 9 for our sales team have changed their pricing or rolled out any big updates?",
+      "Quick question: did any of the 5 crms we reviewed on monday change their pricing or ship anything major?",
+      "what's new with the five crms we shortlisted on monday (nov 9)? any big features or price hikes?",
+      "checking in on the 5 crm platforms we picked on monday, did any alter pricing or release anything major?",
+      "did those 5 crms we shortlisted on monday change pricing or release anything big?"
+    ],
+    "nov3": [
+      "What did I ask you on 3 November? Is your answer still correct today?",
+      "Hey, what was that question I asked on Nov 3rd? Still accurate?",
+      "Remind me what I asked you back on the 3rd of november. Is that info still good?",
+      "what did i ask u on nov 3? is it still right",
+      "Could you tell me what my query was on November 3rd, and whether your response remains valid?",
+      "Do you remember what we talked about on 3/11? Is the answer still the same?",
+      "what did i ask u three weeks ago (nov 3)? still true?",
+      "i need to check what i asked on november third... does the answer still apply?",
+      "What question did I submit on Tuesday the 3rd? Is the reply still correct as of today?",
+      "what did i ask you on nov 3rd? is that still true"
+    ],
+    "postgres": [
+      "Has postgres hosting pricing changed since last tuesday when we talked about it?",
+      "did prices for postgres hosting change since I asked you on the 10th?",
+      "Any price updates on postgres hosting since last week's chat?",
+      "postgres hosting prices change at all since last Tuesday?",
+      "Hi, I was asking about postgres hosting last Tuesday, nov 10. Any price changes?",
+      "Has the pricing for postgres hosting gone up or down since Tuesday?",
+      "Did postgres hosting prices change since i asked on tuesday?",
+      "wondering if postgres hosting costs changed since last tuesday",
+      "pricing update for postgres hosting? asked you on tuesday",
+      "Has anything changed with the postgres hosting prices we discussed a couple days ago?"
+    ]
+  }
+}
