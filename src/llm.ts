@@ -94,6 +94,7 @@ export interface FallbackOptions {
   memory?: { load(): number | undefined; save(until: number): void };
   firstChunkMs?: number; // main model sends nothing for this long → switch to the backup
   restMs?: number; // after "busy" or no reply: skip the main model this long (default 5 min)
+  backupFirstChunkMs?: number; // the backup sends nothing for this long → stop with a clear error
 }
 
 export const DEFAULT_REST_MS = 5 * 60 * 1000;
@@ -116,7 +117,7 @@ export function withFallback(
           from: primary.name, to: backup.name, reason: skipDaily ? "daily quota used up" : "resting after busy",
           daily: skipDaily, skipped: true, until: new Date(skipUntil),
         });
-        yield* backup.stream(input);
+        yield* backupStream(backup, input, options.backupFirstChunkMs);
         return;
       }
       let sentAnything = false;
@@ -141,9 +142,31 @@ export function withFallback(
           from: primary.name, to: backup.name, reason: errorText(err).slice(0, 200), daily, skipped: false, until: new Date(skipUntil),
         });
       }
-      yield* backup.stream(input);
+      yield* backupStream(backup, input, options.backupFirstChunkMs);
     },
   };
+}
+
+// The backup writer, with its own time limit for the first piece of text (no limit if ms is unset).
+async function* backupStream(backup: ChatModel, input: TurnInput, ms?: number): AsyncGenerator<Part[]> {
+  if (!ms) {
+    yield* backup.stream(input);
+    return;
+  }
+  const it = backup.stream(input)[Symbol.asyncIterator]();
+  let started = false;
+  try {
+    for (;;) {
+      const next = started ? await it.next() : await firstChunk(it.next(), ms);
+      if (next.done) return;
+      started = true;
+      yield next.value;
+    }
+  } catch (err) {
+    void it.return?.();
+    if (err instanceof NoReplyError) throw new Error(`The AI didn't answer in time (${err.message}). Please try again.`);
+    throw err;
+  }
 }
 
 // The main model said nothing in time.

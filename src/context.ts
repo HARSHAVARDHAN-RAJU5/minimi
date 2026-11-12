@@ -75,7 +75,7 @@ export function namesIn(question: string, known: string[] = []): string[] {
 
   for (const k of known) if (new RegExp(`\\b${escape(k)}\\b`, "i").test(question)) add(k);
 
-  const follow = /^(?:and|what about|how about|and what about)\s+(?:in|for|on|with|the)?\s*(.+?)\s*\??$/i.exec(question.trim());
+  const follow = /^(?:and|what about|how about|and what about)\s+(?:(?:in|for|on|with|the)\s+)?(.+?)\s*\??$/i.exec(question.trim());
   if (follow && follow[1].split(/\s+/).length <= 3) add(follow[1]);
 
   // Join runs of capitalised words separated by a single space ("Sales Hub"), but not across

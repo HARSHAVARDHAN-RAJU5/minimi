@@ -457,3 +457,15 @@ describe("writer: no reply in time", () => {
     expect(textOf(await run(createFakeModel([[[fake.text("x")]]]).model, writer, createFakeSearch().search))).toBe("first second");
   });
 });
+
+describe("backup writer time limit", () => {
+  it("if the backup also sends nothing in time, a clear error instead of waiting forever", async () => {
+    const quota = new Error("429 RESOURCE_EXHAUSTED");
+    const main: ChatModel = { name: "smart", async *stream() { throw quota; } };
+    const hangingBackup: ChatModel = { name: "lite", async *stream() { await new Promise((r) => setTimeout(r, 2000)); yield [fake.text("late")]; } };
+    const writer = withFallback(main, hangingBackup, () => {}, { backupFirstChunkMs: 50 });
+    const start = Date.now();
+    await expect(run(createFakeModel([[[fake.text("x")]]]).model, writer, createFakeSearch().search)).rejects.toThrow("The AI didn't answer in time");
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+});

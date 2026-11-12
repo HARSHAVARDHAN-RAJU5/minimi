@@ -36,6 +36,8 @@ export interface AppState { getState(key: string): string | undefined; setState(
 export const PLANNER_TIMEOUT_MS = 5000;
 // The smart writer normally starts in ~3 s; when it's overloaded it can hang ~27 s before failing.
 export const WRITER_FIRST_CHUNK_MS = 8000;
+// The backup (fast) writer can legitimately take 7-11 s when Google is busy; past 20 s, give up with a clear error.
+export const BACKUP_FIRST_CHUNK_MS = 20000;
 
 // db: keeps the used-up quota across restarts, and lets memory questions look through old chats.
 // fakes: tests can plug in a fake planner, writer and search instead of the real ones.
@@ -62,6 +64,7 @@ export function createAgent(
         listener: fast, // understands the question; code checks and acts
         writer: withFallback(smart, fast, (info) => log(fallbackLine(info)), {
           firstChunkMs: WRITER_FIRST_CHUNK_MS,
+          backupFirstChunkMs: BACKUP_FIRST_CHUNK_MS,
           // Remember "smart model's daily quota is used up until …" across restarts.
           memory: state && {
             load: () => Number(state.getState(`skip_until:${config.geminiModel}`)) || undefined,

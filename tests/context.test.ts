@@ -118,3 +118,10 @@ describe("small talk and filler words", () => {
     ]);
   });
 });
+
+describe("bug: 'what about international cards?'", () => {
+  it("keeps 'international' whole (it used to lose its 'in')", () => {
+    expect(q("what about international cards?", { things: ["Stripe"], topic: "pricing" })).toEqual(["international cards pricing 2026"]);
+    expect(q("and in Remix?", { things: ["Next.js 16"], topic: "new features" })).toEqual(["Remix new features 2026"]);
+  });
+});
