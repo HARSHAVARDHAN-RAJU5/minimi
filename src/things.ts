@@ -24,7 +24,7 @@ export function normalWebsite(site?: string): string | undefined {
 
 // Words that say nothing about what kind of thing it is.
 const TYPE_FILLER = new Set(["tool", "tools", "platform", "software", "service", "services", "company", "app", "product", "a", "an", "the", "for", "and", "of"]);
-const typeWords = (type?: string) => new Set((type ?? "").toLowerCase().match(/[a-z0-9]+/g)?.filter((w) => !TYPE_FILLER.has(w)) ?? []);
+export const typeWords = (type?: string) => new Set((type ?? "").toLowerCase().match(/[a-z0-9]+/g)?.filter((w) => !TYPE_FILLER.has(w)) ?? []);
 
 // Do two type descriptions agree? "sales CRM" + "CRM" → agree; "sales tool" + "coding tool" → differ.
 export function compareTypes(a?: string, b?: string): "agree" | "differ" | "unknown" {

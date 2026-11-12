@@ -7,7 +7,7 @@ import type { ChatNote } from "./context.js";
 import type { Source } from "./llm.js";
 
 import { DEFAULT_DB_PATH } from "./config.js";
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export interface User { id: number; name: string; createdAt: string }
 export interface Chat { id: number; userId: number; title: string; note?: ChatNote; createdAt: string; updatedAt: string }
@@ -113,6 +113,19 @@ CREATE INDEX IF NOT EXISTS things_by_user_name   ON things(user_id, name COLLATE
 CREATE INDEX IF NOT EXISTS mentions_by_thing     ON mentions(user_id, thing_id, created_at);
 CREATE INDEX IF NOT EXISTS mentions_by_chat      ON mentions(chat_id);
 CREATE INDEX IF NOT EXISTS facts_by_thing_time   ON facts(user_id, thing_id, checked_at);
+
+-- Search index on message text (words like "pricing" also find "prices"). Kept in step by triggers.
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(text, content='messages', content_rowid='id', tokenize='porter unicode61');
+CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_fts(rowid, text) VALUES (new.id, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.id, old.text);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE OF text ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.id, old.text);
+  INSERT INTO messages_fts(rowid, text) VALUES (new.id, new.text);
+END;
 `;
 
 type Row = Record<string, unknown>;
@@ -125,7 +138,10 @@ export class Db {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 3000;");
+    const before = Number((this.db.prepare("PRAGMA user_version").get() as Row).user_version);
     this.db.exec(SCHEMA);
+    // Older database: fill the new search index with the messages saved before it existed.
+    if (before > 0 && before < 3) this.db.exec("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')");
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
@@ -201,6 +217,25 @@ export class Db {
       id: Number(lastInsertRowid), chatId, role: m.role, text: m.text, sources, searches,
       ...(m.timezone ? { timezone: m.timezone } : {}), stopped: Boolean(m.stopped), createdAt,
     };
+  }
+
+  // A user's messages in a time range [from, to), in order. beforeId: only messages saved before this one.
+  listMessagesInRange(userId: number, range: { from?: string; to?: string; beforeId?: number }): Message[] {
+    return (this.db
+      .prepare("SELECT * FROM messages WHERE user_id = ? AND created_at >= ? AND created_at < ? AND id < ? ORDER BY id")
+      .all(userId, range.from ?? "", range.to ?? "9999", range.beforeId ?? Number.MAX_SAFE_INTEGER) as Row[]).map(toMessage);
+  }
+
+  // A user's messages containing any of these words (search index), best matches first.
+  searchMessages(userId: number, words: string[], range: { from?: string; to?: string; beforeId?: number; limit?: number } = {}): Message[] {
+    const terms = words.map((w) => w.replace(/"/g, "").trim()).filter(Boolean).map((w) => `"${w}"`);
+    if (terms.length === 0) return [];
+    return (this.db
+      .prepare(`SELECT m.* FROM messages_fts f JOIN messages m ON m.id = f.rowid
+                WHERE messages_fts MATCH ? AND m.user_id = ? AND m.created_at >= ? AND m.created_at < ? AND m.id < ?
+                ORDER BY bm25(messages_fts) LIMIT ?`)
+      .all(terms.join(" OR "), userId, range.from ?? "", range.to ?? "9999", range.beforeId ?? Number.MAX_SAFE_INTEGER, range.limit ?? 50) as Row[])
+      .map(toMessage);
   }
 
   // A chat's messages in order (only if the chat belongs to this user).
@@ -315,6 +350,11 @@ export class Db {
       ...(f.sourceUrl ? { sourceUrl: f.sourceUrl } : {}), ...(f.chatId ? { chatId: f.chatId } : {}),
       ...(f.messageId ? { messageId: f.messageId } : {}), checkedAt,
     };
+  }
+
+  // The facts saved from one chat (what was said then), oldest first.
+  listFactsInChat(userId: number, chatId: number): Fact[] {
+    return (this.db.prepare("SELECT * FROM facts WHERE user_id = ? AND chat_id = ? ORDER BY checked_at, id").all(userId, chatId) as Row[]).map(toFact);
   }
 
   // Every fact about a thing, oldest first (the full history).
