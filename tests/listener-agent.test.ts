@@ -113,11 +113,38 @@ describe("memory: the listener says what's looked for; code finds it", () => {
   });
 });
 
+describe("decisions about something never discussed", () => {
+  it("'did we decide on a Figma plan?' (form says decision) → honest not found, not the Pipedrive decision", async () => {
+    const r = await run("Did we decide on a Figma plan last Thursday?", {
+      type: "memory", looking_for: "decision", when: "last Thursday", topic: "Figma plan", products: ["Figma"],
+    });
+    expect(r.writerText).not.toContain("Chose Pipedrive");
+    expect(r.writerText).toMatch(/NOT FOUND|no chat on Thu 5 Nov was about/);
+  });
+
+  it("'which Postgres host did we pick last week?' → that week's chats, not the unrelated Pipedrive decision", async () => {
+    const r = await run("Which Postgres host did we pick last week?", { type: "memory", looking_for: "decision", when: "last week", topic: "Postgres hosting" });
+    expect(r.writerText).not.toContain("Chose Pipedrive");
+    expect(r.recall).toBeDefined();
+  });
+
+  it("'which CRM did we go with?' (a kind we talked about) → the decision", async () => {
+    const r = await run("Which CRM did we end up going with?", { type: "memory", looking_for: "decision", products: ["CRM"] });
+    expect(r.writerText).toContain("Chose Pipedrive");
+  });
+});
+
 describe("safety: the old way still works", () => {
-  it("obvious questions skip the listener", async () => {
-    const r = await run("What does Neon cost?", { type: "new", searches: ["should not be used"] });
+  it("obvious questions skip the listener (a product never talked about)", async () => {
+    const r = await run("What does Railway cost?", { type: "new", searches: ["should not be used"] });
     expect(r.listenerCalls).toBe(0);
-    expect(r.queries).toEqual(["Neon cost 2026"]);
+    expect(r.queries).toEqual(["Railway cost 2026"]);
+  });
+
+  it("a product talked about before is not obvious: the listener decides ('is Neon still $19?')", async () => {
+    const r = await run("Is Neon still $19 a month?", { type: "memory", looking_for: "topic", topic: "Neon price", products: ["Neon"] });
+    expect(r.listenerCalls).toBe(1);
+    expect(r.recall).toMatchObject({ found: true });
   });
 
   it("a broken form falls back to the old way", async () => {

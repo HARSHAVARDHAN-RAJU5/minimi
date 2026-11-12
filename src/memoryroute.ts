@@ -4,7 +4,7 @@ import { findDateRange } from "./dates.js";
 import type { Db } from "./db.js";
 import { decisionsFor, toDecision, type Decision } from "./decisions.js";
 import type { Understanding } from "./listener.js";
-import { memorySearches, recall, recallLastQuestion, recallUserFact, type Recall } from "./recall.js";
+import { memorySearches, recall, recallLastQuestion, recallUserFact, thingsInQuestion, type Recall } from "./recall.js";
 
 export interface MemoryLookup {
   recall?: Recall; // the old chat(s), if any
@@ -31,8 +31,14 @@ export function lookupMemory(
   if (u.lookingFor === "decision") {
     const all = db.listDecisions(userId).map(toDecision);
     const matching = about ? decisionsFor(db, userId, `${about} ${question}`) : [];
-    const decisions = matching.length ? matching : all;
-    return { decisions, searches: [], reason: decisions.length ? `${decisions.length} decision(s)` : "no decisions saved" };
+    // A product we never talked about ("did we decide on a Figma plan?"), or a time ("…last week?")
+    // → look for the chat below instead (it adds matching decisions), so the answer can honestly say
+    // "not found" rather than show some other decision.
+    const unknown = u.products.length > 0 && matching.length === 0 && thingsInQuestion(db, userId, u.products.join(" ")).length === 0;
+    if (!unknown && !u.when) {
+      const decisions = matching.length ? matching : all;
+      return { decisions, searches: [], reason: decisions.length ? `${decisions.length} decision(s)` : "no decisions saved" };
+    }
   }
 
   if (u.lookingFor === "user_fact") {

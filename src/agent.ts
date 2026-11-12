@@ -9,7 +9,7 @@ import { understand, type Understanding } from "./listener.js";
 import { lookupMemory } from "./memoryroute.js";
 import { isMemoryQuestion, memoryBlock, memorySearches, recall, recallSummary } from "./recall.js";
 import { decisionsBlock, decisionsFor } from "./decisions.js";
-import { oldFactsFor, stillTrueBlock } from "./stilltrue.js";
+import { namedThings, oldFactsFor, stillTrueBlock } from "./stilltrue.js";
 import { webSearchFromConfig, type WebSearch } from "./search.js";
 
 // Earlier messages on the page, so follow-ups like "and Supabase?" work.
@@ -92,8 +92,10 @@ export function createAgent(
 
     // 1) Listen: the fast AI fills a short form about the question (skipped when it's obvious).
     //    Code checks the form and does the work. No form → the old code rules below.
+    // (A product we talked about before is never obvious: "is Vercel still $20?" may be about memory.)
     const obvious = isSmallTalk(question)
-      || (!history?.length && !isMemoryQuestion(question, undefined, timezone) && chooseSearchPath(question, undefined, "code-first").path === "code");
+      || (!history?.length && !isMemoryQuestion(question, undefined, timezone) && chooseSearchPath(question, undefined, "code-first").path === "code"
+        && !(hasDb && namedThings(db as Db, userId!, question).length));
     let u: Understanding | undefined;
     if (listener && config.searchMode === "code-first" && !obvious) {
       const heard = await understand(listener, { question, history, timezone });

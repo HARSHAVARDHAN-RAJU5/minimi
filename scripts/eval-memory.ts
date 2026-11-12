@@ -4,13 +4,18 @@
 // through recall(); the score per kind shows what works and what doesn't.
 // Run: npm run eval:memory            (uses saved questions if they exist)
 //      npm run eval:memory -- --new   (asks the AI for a fresh set)
+//      npm run eval:memory -- --listener   (the new way: listener form → code, like the agent does)
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { loadConfig, loadEnvFile, requireGeminiKey } from "../src/config.js";
 import { Db } from "../src/db.js";
 import { saveCards } from "../src/extract.js";
+import { chooseSearchPath, isSmallTalk } from "../src/context.js";
+import { understand } from "../src/listener.js";
 import { createGeminiModel, isQuotaOrBusy } from "../src/llm.js";
 import { updateLoops } from "../src/loops.js";
-import { recall } from "../src/recall.js";
+import { lookupMemory } from "../src/memoryroute.js";
+import { namedThings, oldFactsFor } from "../src/stilltrue.js";
+import { isMemoryQuestion, recall, type Recall } from "../src/recall.js";
 
 const FILE = "evals/memory-questions.json";
 const now = new Date("2026-11-12T03:00:00.000Z"); // Thursday 12 Nov 2026, 08:30 in India
@@ -103,21 +108,67 @@ for (const h of HISTORY) {
 }
 const keyOf = (id: number) => Object.keys(ids).find((k) => ids[k] === id) ?? `chat ${id}`;
 
+const useListener = process.argv.includes("--listener");
+loadEnvFile();
+const cfg = loadConfig();
+const listener = useListener ? createGeminiModel(requireGeminiKey(cfg), cfg.geminiFastModel) : undefined;
+const recallPass = (target: string, r: Recall | undefined) => target === "none"
+  ? !r || r.status === "none" || (r.hasTopic && !r.topicMatched)
+  : r?.status === "found" && keyOf(r.chats[0].chat.id) === target;
+const recallText = (r: Recall | undefined) => (!r ? "not a memory question" : r.status === "none" ? "nothing found" : r.chats.map((c) => keyOf(c.chat.id)).join(", "))
+  + (r?.range ? `   [dates: ${r.range.label}]` : "") + (r && !r.topicMatched && r.hasTopic ? "  (topic not matched)" : "");
+
+// One question, the way the agent handles it. Returns pass + what happened.
+async function check(target: string, q: string): Promise<{ pass: boolean; got: string }> {
+  if (!listener) {
+    const r = recall(db, user, q, { now, timezone });
+    return { pass: recallPass(target, r), got: recallText(r) };
+  }
+  const obvious = isSmallTalk(q) || (!isMemoryQuestion(q, undefined, timezone) && chooseSearchPath(q, undefined, "code-first").path === "code" && namedThings(db, user, q).length === 0);
+  let heard: Awaited<ReturnType<typeof understand>> = { ms: 0 };
+  for (let attempt = 0; !obvious; attempt++) {
+    heard = await understand(listener, { question: q, timezone, now }, 15_000);
+    if (heard.understanding || attempt >= 3 || !/busy|quota|429|503|overload|reply in/i.test(heard.problem ?? "")) break;
+    await sleep(10_000);
+  }
+  const u = heard.understanding;
+  if (!u || u.type !== "memory") {
+    // Old way (listener skipped, failed, or said "not memory"): the agent only recalls if the old rule sees memory.
+    const why = obvious ? "skipped (obvious)" : u ? `listener said ${u.type}` : `listener failed (${heard.problem})`;
+    // A new/follow-up form: the agent still adds the "still true?" check (old values of named products).
+    if (u) {
+      const facts = oldFactsFor(db, user, `${q} ${u.products.join(" ")}`, now);
+      const targetThings = (HISTORY.find((h) => h.key === target)?.things ?? []).map((t) => t.name);
+      const pass = facts.some((f) => targetThings.includes(f.thing));
+      return { pass, got: `${why} → still-true check: ${facts.map((f) => `${f.thing} ${f.field} ${f.value}`).join("; ") || "no old facts"}` };
+    }
+    const r = isMemoryQuestion(q, undefined, timezone) ? recall(db, user, q, { now, timezone }) : undefined;
+    return { pass: recallPass(target, r), got: `${why} → old way: ${recallText(r)}` };
+  }
+  const lm = lookupMemory(db, user, q, u, { now, timezone });
+  const form = `[${u.lookingFor || "-"}${u.when ? ` when="${u.when}"` : ""}${u.topic ? ` topic="${u.topic}"` : ""}${u.products.length ? ` products=${u.products.join("/")}` : ""}]`;
+  if (u.lookingFor === "decision" && !lm.recall) {
+    const pass = target === "decision" ? lm.decisions.some((d) => d.choice === "Pipedrive") : target === "none" ? lm.decisions.length === 0 : false;
+    return { pass, got: `${form} decisions: ${lm.decisions.map((d) => d.choice).join(", ") || "none"}` };
+  }
+  const r = lm.recall;
+  // "never discussed" also passes if code honestly finds no matching chat for a named product.
+  return { pass: recallPass(target, r), got: `${form} ${recallText(r)}${lm.searches.length ? `  search: ${lm.searches.join(" | ")}` : ""}` };
+}
+
 let total = 0;
 let passed = 0;
 const rows: string[] = [];
+console.log(useListener ? "MODE: listener → code (the new way)\n" : "MODE: recall only (the old way)\n");
 for (const k of KINDS) {
   const qs = saved.sets[k.kind] ?? [];
   let ok = 0;
   console.log(`=== ${k.kind} (should find: ${k.target})`);
   for (const q of qs) {
-    const r = recall(db, user, q, { now, timezone });
-    const got = !r ? "not a memory question" : r.status === "none" ? "nothing found" : r.chats.map((c) => keyOf(c.chat.id)).join(", ");
-    const pass = k.target === "none"
-      ? !r || r.status === "none" || (r.hasTopic && !r.topicMatched)
-      : r?.status === "found" && keyOf(r.chats[0].chat.id) === k.target;
+    const { pass, got } = await check(k.target, q);
     if (pass) ok++;
-    console.log(`${pass ? "✅" : "❌"} ${q}\n     → ${got}${r?.range ? `   [dates: ${r.range.label}]` : ""}${r && !r.topicMatched && r.hasTopic ? "  (topic not matched)" : ""}`);
+    console.log(`${pass ? "✅" : "❌"} ${q}
+     → ${got}`);
   }
   console.log(`   ${ok}/${qs.length}\n`);
   rows.push(`${k.kind.padEnd(24)} ${ok}/${qs.length}`);
