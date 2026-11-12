@@ -4,7 +4,7 @@ import { loadConfig } from "../src/config.js";
 import { Db } from "../src/db.js";
 import { createFakeModel, fake } from "../src/llm.js";
 import { createFakeSearch } from "../src/search.js";
-import { namedThings, oldFactsFor, stillTrueBlock } from "../src/stilltrue.js";
+import { factMatchesQuestion, namedThings, oldFactsFor, stillTrueBlock } from "../src/stilltrue.js";
 
 // Today: Thursday 12 Nov 2026, 08:30 in India.
 const NOW = new Date("2026-11-12T03:00:00.000Z");
@@ -44,6 +44,14 @@ describe("which old facts are checked", () => {
       "--- Memory: facts you told this user before ---\n- Neon · Launch plan price: $19/month (said Tue 3 Nov)",
     );
     expect(stillTrueBlock([])).toBeUndefined();
+  });
+
+  it("only facts the question is about: a price only for price questions", () => {
+    expect(factMatchesQuestion({ field: "Launch plan price", value: "$19/month" }, "What does Neon cost?")).toBe(true);
+    expect(factMatchesQuestion({ field: "Launch plan price", value: "$19/month" }, "Is Neon any good?")).toBe(false);
+    expect(factMatchesQuestion({ field: "CEO", value: "Yamini Rangan" }, "Who is HubSpot's CEO now?")).toBe(true);
+    expect(factMatchesQuestion({ field: "CEO", value: "Yamini Rangan" }, "Is HubSpot any good?")).toBe(false);
+    expect(oldFactsFor(db, user, "Is Neon any good for startups?", NOW)).toEqual([]);
   });
 
   it("never another user's facts", () => {

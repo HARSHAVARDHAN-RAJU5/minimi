@@ -16,12 +16,27 @@ export function namedThings(db: Db, userId: number, question: string): Thing[] {
 
 export interface OldFact extends Fact { thing: string }
 
-// The latest saved value of each fact about those things, if it was checked more than a day ago.
+const PRICE = /\b(pric\w*|cost\w*|fee\w*|plan|plans|cheap\w*|expensive|budget|pay\w*|\$|per (?:month|seat|user))|\$\d/i;
+const FILLER = new Set(["the", "a", "an", "of", "for", "and", "or", "in", "on", "to", "per", "plan", "is", "what", "who", "how", "does", "do"]);
+const words = (s: string) => new Set((s.toLowerCase().match(/[a-z]{3,}/g) ?? []).filter((w) => !FILLER.has(w)));
+
+// Is the question about what this fact is about? A price fact only for price questions
+// ("Is HubSpot any good?" is not about its price); other facts when the question shares a word
+// with the fact's name ("Who is HubSpot's CEO?" ↔ "CEO").
+export function factMatchesQuestion(fact: { field: string; value: string }, question: string): boolean {
+  if (PRICE.test(`${fact.field} ${fact.value}`)) return PRICE.test(question);
+  const q = words(question);
+  return [...words(fact.field)].some((w) => q.has(w));
+}
+
+// The latest saved value of each fact about those things, if it was checked more than a day ago
+// and the question is about what the fact is about.
 export function oldFactsFor(db: Db, userId: number, question: string, now = new Date()): OldFact[] {
   const facts: OldFact[] = [];
   for (const t of namedThings(db, userId, question)) {
     for (const f of db.latestFacts(userId, t.id)) {
-      if (now.getTime() - Date.parse(f.checkedAt) >= STILL_TRUE_MIN_AGE_MS) facts.push({ ...f, thing: t.name });
+      const old = now.getTime() - Date.parse(f.checkedAt) >= STILL_TRUE_MIN_AGE_MS;
+      if (old && factMatchesQuestion(f, question)) facts.push({ ...f, thing: t.name });
     }
   }
   return facts.slice(0, MAX_FACTS);
